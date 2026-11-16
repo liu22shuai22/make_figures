@@ -1,0 +1,22 @@
+# Local secrets & runtime data — never commit
+*.local.json
+smtp.local.json
+llm.local.json
+*.sqlite3
+auth.sqlite3
+token-usage.sqlite3
+.tmp-pw/
+.env
+.env.*
+
+# Python / tooling
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+
+# Frontend / OS
+node_modules/
+.DS_Store
+*.log

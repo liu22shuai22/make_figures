@@ -1,0 +1,7 @@
+{
+  "host": "smtp.example.com",
+  "port": 465,
+  "user": "your@email.com",
+  "password": "app-password-or-smtp-password",
+  "ssl": true
+}
