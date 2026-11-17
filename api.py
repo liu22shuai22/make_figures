@@ -8,6 +8,7 @@ import subprocess
 import sys
 from threading import BoundedSemaphore
 from typing import Annotated, Literal
+from uuid import uuid4
 
 from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel, StringConstraints
@@ -39,6 +40,7 @@ app = FastAPI(title="ERFlow")
 logger = logging.getLogger(__name__)
 render_slot = BoundedSemaphore(1)
 generate_slot = BoundedSemaphore(1)
+usecase_review_slot = BoundedSemaphore(1)
 worker_script = Path(__file__).resolve()
 RENDER_REQUEST_LIMIT = 128 * 1024
 RENDER_WORKER_TIMEOUT = 55
@@ -61,6 +63,10 @@ class GenerateRequest(BaseModel):
 
 
 class ReviewRequest(BaseModel):
+    spec: dict
+
+
+class UseCaseReviewRequest(GenerateRequest):
     spec: dict
 
 
@@ -320,6 +326,25 @@ def assistant_review(body: ReviewRequest):
     return review_model(spec)
 
 
+@app.post("/api/assistant/review-usecase", dependencies=[Depends(require_render_account)])
+def assistant_review_usecase(body: UseCaseReviewRequest):
+    from er_generator import SpecError
+    from llm_providers import apply_active_to_environ
+    from model_review import review_usecase
+
+    if len(render_request_body(body.spec, "png", kind="usecase")) > RENDER_REQUEST_LIMIT:
+        raise HTTPException(413, "用例图草稿太大")
+    if not usecase_review_slot.acquire(blocking=False):
+        raise HTTPException(503, "正在审查另一份用例图")
+    try:
+        apply_active_to_environ()
+        return review_usecase(body.text, body.spec)
+    except SpecError as error:
+        raise HTTPException(422, str(error)) from None
+    finally:
+        usecase_review_slot.release()
+
+
 @app.post("/api/generate", dependencies=[Depends(require_render_account)])
 def generate(request: GenerateRequest):
     from er_generator import LLMConfigurationError, LLMError, LLMTimeoutError, spec_from_text
@@ -346,6 +371,41 @@ def generate(request: GenerateRequest):
     finally:
         generate_slot.release()
     return {"spec": public_spec(model)}
+
+
+@app.post("/api/generate-usecase", dependencies=[Depends(require_render_account)])
+def generate_usecase(request: GenerateRequest):
+    from er_generator import LLMConfigurationError, LLMError, LLMTimeoutError, SpecError, SpecSizeError
+    from llm_providers import apply_active_to_environ
+    from usecase_generator import USECASE_WEB_RULES, usecase_from_text
+
+    apply_active_to_environ()
+    if not generate_slot.acquire(blocking=False):
+        raise HTTPException(status_code=503, detail="正在生成另一份规格，请稍后重试")
+    try:
+        _, public = usecase_from_text(
+            request.text,
+            timeout=MODEL_REQUEST_TIMEOUT,
+            total_timeout=MODEL_GENERATION_BUDGET,
+            on_usage=record_usage,
+            generation_rules=USECASE_WEB_RULES,
+        )
+        if len(json.dumps({"spec": public}, ensure_ascii=False).encode("utf-8")) > RENDER_REQUEST_LIMIT:
+            raise SpecSizeError("JSON 规格太大，请减少参与者或用例")
+    except LLMConfigurationError:
+        raise HTTPException(status_code=503, detail="服务端尚未配置可用的大模型，请检查模型和 API Key") from None
+    except LLMTimeoutError as error:
+        logger.warning("Use-case generation timed out: %s", error)
+        raise HTTPException(status_code=504, detail=str(error)) from None
+    except (SpecError, SpecSizeError) as error:
+        logger.warning("Use-case generation rejected: %s", error)
+        raise HTTPException(status_code=502, detail=f"模型规格未通过校验：{error}") from None
+    except LLMError as error:
+        logger.warning("Use-case generation failed: %s", error)
+        raise HTTPException(status_code=502, detail=str(error)) from None
+    finally:
+        generate_slot.release()
+    return {"spec": public}
 
 
 @app.post("/api/render")
@@ -381,8 +441,50 @@ def render(spec: dict, username: Annotated[str, Depends(require_render_account)]
         render_slot.release()
 
 
-def render_request_body(spec, image_format, aspect="auto"):
-    return json.dumps({"spec": spec, "format": image_format, "aspect": aspect},
+@app.post("/api/render-usecase")
+def render_usecase(spec: dict, username: Annotated[str, Depends(require_render_account)],
+                   format: Literal["png", "svg"] = "png",
+                   aspect: Literal["auto", "16:9", "4:3", "1:1", "9:16"] = "auto"):
+    request = render_request_body(spec, format, aspect, kind="usecase")
+    if len(request) > RENDER_REQUEST_LIMIT:
+        raise HTTPException(status_code=413, detail="JSON 规格太大")
+    if not render_slot.acquire(blocking=False):
+        raise HTTPException(status_code=503, detail="正在为另一份规格出图，请稍后重试")
+    try:
+        try:
+            result = subprocess.run(
+                [sys.executable, "-B", "-X", "utf8", str(worker_script)],
+                input=request, capture_output=True, timeout=RENDER_WORKER_TIMEOUT,
+            )
+        except subprocess.TimeoutExpired:
+            raise HTTPException(status_code=504, detail="用例图排版超时，请减少参与者或用例后重试") from None
+        if result.returncode:
+            failure_id = uuid4().hex[:12]
+            logger.error("Use-case render worker failed: id=%s exit_code=%s format=%s aspect=%s\n%s",
+                         failure_id, result.returncode, format, aspect,
+                         result.stderr[-6000:].decode("utf-8", errors="replace"))
+            raise HTTPException(status_code=500, detail=f"用例图渲染进程异常（诊断编号 {failure_id}）")
+        try:
+            payload = json.loads(result.stdout)
+            if not isinstance(payload, dict):
+                raise ValueError("render worker returned a non-object payload")
+        except (ValueError, UnicodeError) as error:
+            failure_id = uuid4().hex[:12]
+            logger.error("Use-case render worker failed: id=%s invalid response: %s", failure_id, error)
+            raise HTTPException(status_code=500, detail=f"用例图渲染返回异常（诊断编号 {failure_id}）") from None
+        if "error" in payload:
+            logger.warning("Use-case render rejected (%s): %s", format, payload["error"])
+            raise HTTPException(status_code=422, detail=payload["error"])
+        if not payload.get("overview", {}).get("url"):
+            logger.error("Use-case render worker did not produce overview")
+            raise HTTPException(status_code=500, detail="用例图出图结果不完整，请重新排版")
+        return payload
+    finally:
+        render_slot.release()
+
+
+def render_request_body(spec, image_format, aspect="auto", kind="er"):
+    return json.dumps({"kind": kind, "spec": spec, "format": image_format, "aspect": aspect},
                       ensure_ascii=False).encode("utf-8", "backslashreplace")
 
 
@@ -492,7 +594,40 @@ def render_in_worker(request):
     return {"overview": overview, "entities": entities, "layout": layout}
 
 
+def render_usecase_in_worker(request):
+    from er_generator import SpecError, SpecSizeError, matplotlib
+    from usecase_generator import normalize_usecase_spec, read_usecase_positions, render_usecase_spec
+
+    image_format = request["format"]
+    mime_type = {"png": "image/png", "svg": "image/svg+xml"}[image_format]
+    try:
+        spec = request["spec"]
+        model = normalize_usecase_spec(spec)
+        positions = read_usecase_positions(spec, model)
+        aspect = request.get("aspect", "auto")
+        canvas_ratio = None if aspect == "auto" else tuple(map(int, aspect.split(":")))
+        with matplotlib.rc_context({"text.parse_math": False, "text.usetex": False, "svg.fonttype": "path"}):
+            diagrams = render_usecase_spec(
+                model, image_format=image_format, canvas_ratio=canvas_ratio, positions=positions,
+            )
+    except (SpecError, SpecSizeError) as error:
+        return {"error": str(error)}
+    overview = None
+    layout = None
+    for diagram in diagrams:
+        data = base64.b64encode(diagram["content"]).decode("ascii")
+        overview = {"filename": diagram["filename"], "url": f"data:{mime_type};base64,{data}"}
+        layout = diagram.get("layout")
+    if overview is None:
+        return {"error": "用例图没有生成任何图片"}
+    return {"overview": overview, "entities": [], "layout": layout}
+
+
 if __name__ == "__main__":
     with redirect_stdout(sys.stderr):
-        payload = render_in_worker(json.load(sys.stdin))
+        inbound = json.load(sys.stdin)
+        if inbound.get("kind") == "usecase":
+            payload = render_usecase_in_worker(inbound)
+        else:
+            payload = render_in_worker(inbound)
     json.dump(payload, sys.stdout)

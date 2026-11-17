@@ -4,6 +4,7 @@ import BrandMark from './components/BrandMark'
 import { loginAccount, registerAccount, requestEmailCode } from './auth'
 import type { AuthSession } from './auth'
 import type { Theme } from './theme'
+import { useLocale } from './LocaleContext'
 
 interface AuthPageProps {
   mode: 'login' | 'register'
@@ -96,17 +97,19 @@ function BackArrowIcon() {
 
 /* ---------- 密码强度判断 ---------- */
 
-function judgePassword(pw: string): { level: 0 | 1 | 2 | 3; label: string } {
-  if (!pw) return { level: 0, label: '' }
-  let score = 0
-  if (pw.length >= 6) score += 1
-  if (pw.length >= 10 || /[^A-Za-z0-9]/.test(pw)) score += 1
-  if (/[A-Za-z]/.test(pw) && /\d/.test(pw)) score += 1
-  const level = Math.min(3, Math.max(1, score)) as 1 | 2 | 3
-  return { level, label: level === 1 ? '偏弱' : level === 2 ? '一般' : '很稳' }
-}
-
 export default function AuthPage({ mode, onModeChange, onSuccess, onBack, theme, onToggleTheme }: AuthPageProps) {
+  const { app } = useLocale()
+  const a = app.auth
+
+  function judgePassword(pw: string): { level: 0 | 1 | 2 | 3; label: string } {
+    if (!pw) return { level: 0, label: '' }
+    let score = 0
+    if (pw.length >= 6) score += 1
+    if (pw.length >= 10 || /[^A-Za-z0-9]/.test(pw)) score += 1
+    if (/[A-Za-z]/.test(pw) && /\d/.test(pw)) score += 1
+    const level = Math.min(3, Math.max(1, score)) as 1 | 2 | 3
+    return { level, label: level === 1 ? a.weak : level === 2 ? a.medium : a.strong }
+  }
   const [username, setUsername] = useState('')
   const [email, setEmail] = useState('')
   const [code, setCode] = useState('')
@@ -212,7 +215,7 @@ export default function AuthPage({ mode, onModeChange, onSuccess, onBack, theme,
             event.preventDefault()
             onBack()
           }}
-          title="返回欢迎页"
+          title={app.homeTitle}
           data-testid="auth-back-home"
         >
           <BrandMark size={30} />
@@ -222,7 +225,7 @@ export default function AuthPage({ mode, onModeChange, onSuccess, onBack, theme,
           <ThemeToggle theme={theme} onToggle={onToggleTheme} />
           <button type="button" className="auth-back-link" onClick={onBack} data-testid="auth-back">
             <BackArrowIcon />
-            <span>返回首页</span>
+            <span>{app.backHome}</span>
           </button>
         </div>
       </header>
@@ -234,19 +237,15 @@ export default function AuthPage({ mode, onModeChange, onSuccess, onBack, theme,
           <section className={'auth-sheet' + (mode === 'login' ? ' is-login' : '')}>
             <form className="auth-form" onSubmit={submit} noValidate>
               <div className="auth-form-head">
-                <h2>{mode === 'login' ? '登录 ERFlow' : '注册新账号'}</h2>
-                <p className="auth-sub">
-                  {mode === 'login'
-                    ? '用同一个账号继续你的图，出图记录都在这台服务上。'
-                    : '验证码会发到邮箱，填对之后直接进入工作台。'}
-                </p>
+                <h2>{mode === 'login' ? a.loginTitle : a.registerTitle}</h2>
+                <p className="auth-sub">{mode === 'login' ? a.loginSub : a.registerSub}</p>
               </div>
 
               {/* 用户名输入框 */}
               <label className="auth-field">
                 <span className="auth-label-row">
-                  <span className="auth-label">用户名</span>
-                  <span className="auth-label-hint">2–24 位</span>
+                  <span className="auth-label">{a.username}</span>
+                  <span className="auth-label-hint">{a.nameHint}</span>
                 </span>
                 <span className={'auth-input' + (nameOk ? ' is-ok' : '')}>
                   <span className="auth-input-icon"><UserIcon /></span>
@@ -268,7 +267,7 @@ export default function AuthPage({ mode, onModeChange, onSuccess, onBack, theme,
               {mode === 'register' && (
                 <label className="auth-field">
                   <span className="auth-label-row">
-                    <span className="auth-label">邮箱</span>
+                    <span className="auth-label">{a.email}</span>
                   </span>
                   <span className={'auth-input' + (emailOk ? ' is-ok' : '')}>
                     <span className="auth-input-icon"><MailIcon /></span>
@@ -289,7 +288,7 @@ export default function AuthPage({ mode, onModeChange, onSuccess, onBack, theme,
               {mode === 'register' && (
                 <label className="auth-field">
                   <span className="auth-label-row">
-                    <span className="auth-label">验证码</span>
+                    <span className="auth-label">{a.code}</span>
                   </span>
                   <span className="auth-code-line">
                     <span className={'auth-input' + (codeOk ? ' is-ok' : '')}>
@@ -299,7 +298,7 @@ export default function AuthPage({ mode, onModeChange, onSuccess, onBack, theme,
                         value={code}
                         onChange={(event) => setCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
                         autoComplete="one-time-code"
-                        placeholder="6 位验证码"
+                        placeholder={a.code}
                         data-testid="auth-code"
                         maxLength={6}
                       />
@@ -311,7 +310,7 @@ export default function AuthPage({ mode, onModeChange, onSuccess, onBack, theme,
                       disabled={!emailOk || sendingCode || cooldown > 0}
                       data-testid="auth-send-code"
                     >
-                      {sendingCode ? '发送中…' : cooldown > 0 ? `${cooldown} 秒` : '获取验证码'}
+                      {sendingCode ? a.sending : cooldown > 0 ? a.cooldown(cooldown) : a.sendCode}
                     </button>
                   </span>
                 </label>
@@ -320,8 +319,8 @@ export default function AuthPage({ mode, onModeChange, onSuccess, onBack, theme,
               {/* 密码输入框 */}
               <label className="auth-field">
                 <span className="auth-label-row">
-                  <span className="auth-label">密码</span>
-                  <span className="auth-label-hint">至少 6 位</span>
+                  <span className="auth-label">{a.password}</span>
+                  <span className="auth-label-hint">{a.pwHint}</span>
                 </span>
                 <span className={'auth-input' + (pwOk ? ' is-ok' : '')}>
                   <span className="auth-input-icon"><LockIcon /></span>
@@ -330,7 +329,7 @@ export default function AuthPage({ mode, onModeChange, onSuccess, onBack, theme,
                     value={password}
                     onChange={(event) => setPassword(event.target.value)}
                     autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
-                    placeholder="请输入密码"
+                    placeholder={a.password}
                     data-testid="auth-password"
                     maxLength={64}
                   />
@@ -338,7 +337,7 @@ export default function AuthPage({ mode, onModeChange, onSuccess, onBack, theme,
                     type="button"
                     className="auth-eye"
                     onClick={() => setShowPassword((value) => !value)}
-                    aria-label={showPassword ? '隐藏密码' : '显示密码'}
+                    aria-label={showPassword ? a.hidePw : a.showPw}
                     data-testid="auth-toggle-password"
                   >
                     <EyeIcon off={showPassword} />
@@ -352,8 +351,8 @@ export default function AuthPage({ mode, onModeChange, onSuccess, onBack, theme,
                 <>
                   <label className="auth-field">
                     <span className="auth-label-row">
-                      <span className="auth-label">确认密码</span>
-                      <span className="auth-label-hint">再次核对</span>
+                      <span className="auth-label">{a.confirm}</span>
+                      <span className="auth-label-hint">{a.confirm}</span>
                     </span>
                     <span className={'auth-input' + (confirmOk ? ' is-ok' : '')}>
                       <span className="auth-input-icon"><ShieldCheckIcon /></span>
@@ -362,7 +361,7 @@ export default function AuthPage({ mode, onModeChange, onSuccess, onBack, theme,
                         value={confirm}
                         onChange={(event) => setConfirm(event.target.value)}
                         autoComplete="new-password"
-                        placeholder="再输入一次密码"
+                        placeholder={a.confirm}
                         data-testid="auth-confirm"
                         maxLength={64}
                       />
@@ -370,7 +369,7 @@ export default function AuthPage({ mode, onModeChange, onSuccess, onBack, theme,
                         type="button"
                         className="auth-eye"
                         onClick={() => setShowPassword((value) => !value)}
-                        aria-label={showPassword ? '隐藏密码' : '显示密码'}
+                        aria-label={showPassword ? a.hidePw : a.showPw}
                       >
                         <EyeIcon off={showPassword} />
                       </button>
@@ -404,7 +403,7 @@ export default function AuthPage({ mode, onModeChange, onSuccess, onBack, theme,
                   </>
                 ) : (
                   <>
-                    <span>{mode === 'login' ? '登录' : '注册并登录'}</span>
+                    <span>{busy ? a.busy : mode === 'login' ? a.submitLogin : a.submitRegister}</span>
                     <ArrowRightIcon />
                   </>
                 )}
@@ -418,14 +417,14 @@ export default function AuthPage({ mode, onModeChange, onSuccess, onBack, theme,
                   <>
                     还没有账号？
                     <button type="button" className="auth-switch-btn" disabled={busy} onClick={() => switchMode('register')} data-testid="auth-to-register">
-                      注册一个
+                      {a.switchRegister}
                     </button>
                   </>
                 ) : (
                   <>
                     已经有账号了？
                     <button type="button" className="auth-switch-btn" disabled={busy} onClick={() => switchMode('login')} data-testid="auth-to-login">
-                      直接登录
+                      {a.switchLogin}
                     </button>
                   </>
                 )}

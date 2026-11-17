@@ -54,7 +54,7 @@ export default function DragOverlay({ layout, onMove }: DragOverlayProps) {
   }
 
   return (
-    <div className="drag-overlay" ref={overlay} aria-label="整体图实体位置">
+    <div className="drag-overlay" ref={overlay} aria-label="图元位置微调">
       {layout.entities.map((box) => {
         const moving = ghost?.entity === box.entity
         const displayed = moving ? ghost : box

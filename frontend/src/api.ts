@@ -1,4 +1,12 @@
-import type { CanvasRatio, DiagramLayout, ImageFormat, JsonSpec, RenderedEntityImage, RenderedImage } from './types'
+import type {
+  CanvasRatio,
+  DiagramLayout,
+  ImageFormat,
+  JsonSpec,
+  RenderedEntityImage,
+  RenderedImage,
+  UseCaseJsonSpec,
+} from './types'
 
 type ApiErrorKind = 'network' | 'timeout' | 'http' | 'shape'
 
@@ -37,6 +45,37 @@ interface ReviewFinding {
 export interface ModelReview {
   structural: ReviewFinding[]
   status: 'local'
+}
+
+export interface UseCaseReviewFinding {
+  kind: 'responsibility' | 'omission' | 'dependency'
+  disposition: 'issue' | 'confirm'
+  evidence: string
+  message: string
+  suggestion: string
+}
+
+export interface UseCaseReview {
+  status: 'complete' | 'unavailable'
+  findings: UseCaseReviewFinding[]
+}
+
+export async function reviewUseCaseSpec(text: string, spec: UseCaseJsonSpec, token: string): Promise<UseCaseReview> {
+  const result = await postJson('/api/assistant/review-usecase', { text, spec }, {
+    token, timeoutMs: 32_000, timeoutMessage: '业务审查超时，可稍后重试。',
+  })
+  if (!isOk(result.status)) {
+    const detail = detailToText(detailOf(result.data))
+    const hint = result.status === 422 && detail ? `请先修正草稿：${detail}` :
+      result.status === 503 && detail ? detail :
+      result.status === 401 ? '请重新登录后再审查。' : '业务审查暂时不可用。'
+    throw new ApiError(hint, 'http', result.status)
+  }
+  const body = result.data as UseCaseReview | null
+  if (!body || !Array.isArray(body.findings) || (body.status !== 'complete' && body.status !== 'unavailable')) {
+    throw new ApiError('助手未返回有效的用例审查结果。', 'shape')
+  }
+  return body
 }
 
 export async function reviewSpec(spec: JsonSpec, token: string): Promise<ModelReview> {
@@ -270,4 +309,77 @@ export async function generateSpec(text: string, token: string): Promise<unknown
     throw new ApiError('后端返回的数据里没有 spec。请检查后端版本。', 'shape')
   }
   return spec
+}
+
+/** POST /api/generate-usecase → { spec } */
+export async function generateUseCaseSpec(text: string, token: string): Promise<{ spec: unknown; reviewNotes: string[] }> {
+  const result = await postJson(
+    '/api/generate-usecase',
+    { text },
+    {
+      token,
+      timeoutMs: GENERATE_TIMEOUT_MS,
+      timeoutMessage: '等待模型响应超过 135 秒，请稍后重试。',
+    },
+  )
+
+  if (!isOk(result.status)) {
+    throw new ApiError(
+      (result.status === 404 ? '后端缺少「生成用例图」接口，请检查当前后端版本。' :
+        messageForGenerateFailure(result.status, detailOf(result.data), result.rawBody)).replace(
+        'E-R 图',
+        '用例图',
+      ),
+      'http',
+      result.status,
+    )
+  }
+
+  const spec = result.data && typeof result.data === 'object' ? (result.data as { spec?: unknown }).spec : undefined
+  if (!spec || typeof spec !== 'object') {
+    throw new ApiError('后端返回的数据里没有用例图 spec。请检查后端版本。', 'shape')
+  }
+  const notes = (spec as { reviewNotes?: unknown }).reviewNotes
+  return { spec, reviewNotes: Array.isArray(notes) ? notes.filter((item): item is string => typeof item === 'string') : [] }
+}
+
+/** POST /api/render-usecase */
+export async function renderUseCaseSpec(
+  payload: UseCaseJsonSpec,
+  format: ImageFormat,
+  ratio: CanvasRatio,
+  token: string,
+): Promise<RenderResponse> {
+  const query = new URLSearchParams({ format, aspect: ratio })
+  const result = await postJson(`/api/render-usecase?${query}`, payload, {
+    token,
+    timeoutMs: RENDER_TIMEOUT_MS,
+    timeoutMessage: '请求超时（90 秒），后端可能正忙，请稍后重试。',
+  })
+
+  if (!isOk(result.status)) {
+    const detail = detailToText(detailOf(result.data))
+    throw new ApiError(
+      (result.status === 500 && detail ? detail : messageForRenderFailure(result.status, detailOf(result.data), result.rawBody))
+        .replace('实体或联系', '参与者或用例')
+        .replace('E-R', '用例'),
+      'http',
+      result.status,
+    )
+  }
+
+  const body = result.data as Partial<RenderResponse> | null
+  if (!body || typeof body !== 'object' || !body.overview?.url) {
+    throw new ApiError('后端返回的数据不完整（缺少 overview）。请检查后端版本。', 'shape')
+  }
+
+  return {
+    overview: { filename: body.overview.filename, url: body.overview.url },
+    layout: body.layout,
+    entities: Array.isArray(body.entities)
+      ? body.entities
+          .filter((item) => item && item.url)
+          .map((item) => ({ entity: item.entity, filename: item.filename, url: item.url, frame: item.frame }))
+      : [],
+  }
 }

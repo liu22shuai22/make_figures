@@ -1,0 +1,29 @@
+{
+  "kind": "usecase",
+  "title": "图书借阅系统",
+  "system": "图书借阅系统",
+  "actors": [
+    { "name": "读者", "kind": "primary" },
+    { "name": "管理员", "kind": "secondary" }
+  ],
+  "useCases": [
+    { "name": "借书" },
+    { "name": "还书" },
+    { "name": "查询馆藏" },
+    { "name": "验证身份" },
+    { "name": "续借" }
+  ],
+  "links": [
+    { "actor": "读者", "useCase": "借书" },
+    { "actor": "读者", "useCase": "还书" },
+    { "actor": "读者", "useCase": "查询馆藏" },
+    { "actor": "读者", "useCase": "续借" },
+    { "actor": "管理员", "useCase": "借书" },
+    { "actor": "管理员", "useCase": "还书" },
+    { "actor": "管理员", "useCase": "查询馆藏" }
+  ],
+  "dependencies": [
+    { "kind": "include", "from": "借书", "to": "验证身份" },
+    { "kind": "include", "from": "还书", "to": "验证身份" }
+  ]
+}

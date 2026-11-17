@@ -10,6 +10,7 @@ import type { AssistantDraft } from './components/ModelAssistant'
 import './styles.css'
 import { applyTheme, readTheme } from './theme'
 import type { Theme } from './theme'
+import { LocaleProvider, useLocale } from './LocaleContext'
 import { clearSession, loadSession, logoutSession, verifySession } from './auth'
 import type { AuthSession } from './auth'
 import type { WorkbenchCommand } from './types'
@@ -34,6 +35,7 @@ const normalize = (pathname: string) => {
 
 type Route = typeof HOME | typeof WORKBENCH | typeof USAGE | typeof API_PLATFORM | typeof LOGIN | typeof REGISTER
 function Root() {
+  const { locale, welcome, app } = useLocale()
   const [route, setRoute] = useState<Route>(() => normalize(window.location.pathname))
   const [command, setCommand] = useState<WorkbenchCommand | null>(null)
   const [theme, setTheme] = useState<Theme>(readTheme)
@@ -61,13 +63,23 @@ function Root() {
   }, [])
 
   useEffect(() => {
-    document.title = route === USAGE ? 'ERFlow Token 用量'
-      : route === API_PLATFORM ? 'ERFlow API 平台'
-      : route === WORKBENCH ? 'ERFlow 工作台'
-      : route === LOGIN ? 'ERFlow 登录'
-      : route === REGISTER ? 'ERFlow 注册'
-      : 'ERFlow · 用自然语言生成 E-R 图'
-  }, [route])
+    if (route === HOME) {
+      document.title = welcome.pageTitle
+      return
+    }
+    document.title =
+      route === USAGE
+        ? app.usage.pageTitle
+        : route === API_PLATFORM
+          ? app.api.pageTitle
+          : route === WORKBENCH
+            ? app.pageTitleWorkbench
+            : route === LOGIN
+              ? app.pageTitleLogin
+              : route === REGISTER
+                ? app.pageTitleRegister
+                : welcome.pageTitle
+  }, [route, locale, welcome.pageTitle, app])
 
   useEffect(() => {
     if (!auth) return
@@ -80,7 +92,7 @@ function Root() {
       checking = false
       if (!cancelled && valid === false) {
         clearSession(auth)
-        setAuth((current) => current?.token === auth.token ? null : current)
+        setAuth((current) => (current?.token === auth.token ? null : current))
       }
     }
     void check()
@@ -120,6 +132,7 @@ function Root() {
         <Welcome
           onStart={() => go(WORKBENCH, 'focus')}
           onSample={() => go(WORKBENCH, 'sample')}
+          onUseCaseSample={() => go(WORKBENCH, 'usecase-sample')}
           onOpen={() => go(WORKBENCH)}
           onLogin={() => go(LOGIN)}
           onLogout={handleLogout}
@@ -129,21 +142,38 @@ function Root() {
         />
       </div>
       <div hidden={route !== WORKBENCH}>
-        <App command={command} onHome={() => go(HOME)} onUsage={() => go(USAGE)}
-          onLogin={() => go(LOGIN)} username={auth?.username ?? null} token={auth?.token}
-          onOpenApiPlatform={() => go(API_PLATFORM)} onAssistantDraft={setAssistantDraft} />
+        <App
+          command={command}
+          onHome={() => go(HOME)}
+          onUsage={() => go(USAGE)}
+          onLogin={() => go(LOGIN)}
+          username={auth?.username ?? null}
+          token={auth?.token}
+          onOpenApiPlatform={() => go(API_PLATFORM)}
+          onAssistantDraft={setAssistantDraft}
+        />
       </div>
       <div hidden={route !== HOME && route !== WORKBENCH}>
-        <AiAssistant open={assistantOpen} onOpenChange={setAssistantOpen} workbench={assistantDraft}
-          token={auth?.token} variant={route === WORKBENCH ? 'workbench' : 'welcome'}
-          onStart={() => { setAssistantOpen(false); go(WORKBENCH, 'focus') }}
+        <AiAssistant
+          open={assistantOpen}
+          onOpenChange={setAssistantOpen}
+          workbench={assistantDraft}
+          token={auth?.token}
+          variant={route === WORKBENCH ? 'workbench' : 'welcome'}
+          onStart={() => {
+            setAssistantOpen(false)
+            go(WORKBENCH, 'focus')
+          }}
           onSample={() => go(WORKBENCH, 'sample')}
           onOpen={() => go(route === WORKBENCH ? HOME : WORKBENCH)}
-          onLocate={(id) => { setAssistantOpen(false); setAssistantTarget(id); go(WORKBENCH) }} />
+          onLocate={(id) => {
+            setAssistantOpen(false)
+            setAssistantTarget(id)
+            go(WORKBENCH)
+          }}
+        />
       </div>
-      {route === USAGE && (
-        <TokenUsage onBack={() => go(WORKBENCH)} theme={theme} onToggleTheme={toggleTheme} />
-      )}
+      {route === USAGE && <TokenUsage onBack={() => go(WORKBENCH)} theme={theme} onToggleTheme={toggleTheme} />}
       {route === API_PLATFORM && (
         <ApiPlatform
           onBack={() => go(WORKBENCH)}
@@ -172,6 +202,8 @@ function Root() {
 
 createRoot(container).render(
   <StrictMode>
-    <Root />
+    <LocaleProvider>
+      <Root />
+    </LocaleProvider>
   </StrictMode>,
 )

@@ -8,6 +8,13 @@ interface SiteFooterProps {
   onWorkbench?: () => void
   /** 底栏右侧的小字说明，按页面语境定制 */
   note?: string
+  badge?: string
+  tagline?: string
+  navLabel?: string
+  homeLabel?: string
+  workbenchLabel?: string
+  freeLabel?: string
+  sgiLabel?: string
 }
 
 /**
@@ -18,6 +25,13 @@ export default function SiteFooter({
   onHome,
   onWorkbench,
   note = '规格与出图均在本地服务完成，不上传第三方',
+  badge = '公测',
+  tagline = '自然语言凝成可编辑的结构 · 语义沙',
+  navLabel = '页脚导航',
+  homeLabel = '首页',
+  workbenchLabel = '工作台',
+  freeLabel = '免费使用',
+  sgiLabel = '通向SGI',
 }: SiteFooterProps) {
   const year = new Date().getFullYear()
   return (
@@ -29,32 +43,32 @@ export default function SiteFooter({
             <div className="foot-brand-text">
               <div className="foot-brand-row">
                 <strong>ERFlow</strong>
-                <span className="foot-badge">公测</span>
+                <span className="foot-badge">{badge}</span>
               </div>
-              <p>自然语言凝成可编辑的结构 · 语义沙</p>
+              <p>{tagline}</p>
             </div>
           </div>
-          <nav className="foot-nav" aria-label="页脚导航">
+          <nav className="foot-nav" aria-label={navLabel}>
             {onHome && (
               <button type="button" className="link-btn" onClick={onHome}>
-                首页
+                {homeLabel}
               </button>
             )}
             {onWorkbench && (
               <button type="button" className="link-btn" onClick={onWorkbench}>
-                工作台
+                {workbenchLabel}
               </button>
             )}
             <a className="link-btn" href={REPO_URL} target="_blank" rel="noreferrer noopener">
               GitHub
             </a>
-            <span className="foot-sgi" title="通向SGI">
-              通向SGI
+            <span className="foot-sgi" title={sgiLabel}>
+              {sgiLabel}
             </span>
           </nav>
         </div>
         <div className="foot-bar">
-          <span>© {year} ERFlow · 免费使用</span>
+          <span>© {year} ERFlow · {freeLabel}</span>
           <span className="foot-note">{note}</span>
         </div>
       </div>

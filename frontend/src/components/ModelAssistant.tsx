@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { reviewSpec, type ModelReview } from '../api'
 import { toJsonSpec, type Issue } from '../spec'
 import type { SpecDraft } from '../types'
+import { useLocale } from '../LocaleContext'
 
 export interface AssistantDraft {
   spec: SpecDraft
@@ -15,6 +16,8 @@ interface Props extends AssistantDraft {
 }
 
 export default function ModelAssistant({ spec, issues, token, onLocate, checkRequest }: Props) {
+  const { app } = useLocale()
+  const a = app.assistant
   const inFlight = useRef(false)
   const lastRequest = useRef(checkRequest)
   const [busy, setBusy] = useState(false)
@@ -47,39 +50,64 @@ export default function ModelAssistant({ spec, issues, token, onLocate, checkReq
   }, [checkRequest])
 
   const findings = [
-    ...issues.map((issue) => ({ message: issue.message, targetId: issue.targetId, label: issue.level === 'error' ? '结构错误' : '结构提醒' })),
+    ...issues.map((issue) => ({
+      message: issue.message,
+      targetId: issue.targetId,
+      label: issue.level === 'error' ? a.structError : a.structHint,
+    })),
     ...(review?.structural ?? []).map((item) => ({
       message: item.message,
-      targetId: item.index == null ? undefined : item.kind === 'entity' ? spec.entities[item.index]?.id :
-        item.kind === 'relation' ? spec.relations[item.index]?.id : undefined,
-      label: '结构提醒',
+      targetId:
+        item.index == null
+          ? undefined
+          : item.kind === 'entity'
+            ? spec.entities[item.index]?.id
+            : item.kind === 'relation'
+              ? spec.relations[item.index]?.id
+              : undefined,
+      label: a.structHint,
     })),
   ]
 
   return (
-    <section className="model-assistant" aria-label="模型检查">
+    <section className="model-assistant" aria-label={a.reviewAria}>
       <div className="model-assistant-head">
-        <span className="hint">本地规则检查</span>
-        <button type="button" className="btn btn-sm" disabled={busy || spec.entities.length === 0} onClick={() => void check()}>
-          {busy ? '正在检查…' : '检查模型'}
+        <span className="hint">{a.localRules}</span>
+        <button
+          type="button"
+          className="btn btn-sm"
+          disabled={busy || spec.entities.length === 0}
+          onClick={() => void check()}
+        >
+          {busy ? a.checking : a.checkModel}
         </button>
       </div>
-      {spec.entities.length === 0 && <p className="hint">先生成、导入或添加实体，再检查模型。</p>}
-      {report && !current && <p className="hint" role="status">草稿已变化，请重新检查。</p>}
+      {spec.entities.length === 0 && <p className="hint">{a.needEntities}</p>}
+      {report && !current && (
+        <p className="hint" role="status">
+          {a.draftChanged}
+        </p>
+      )}
       {current && (
         <div aria-live="polite">
-          {findings.length > 0 && <ul className="model-findings">
-            {findings.map(({ message, targetId, label }, index) => (
-              <li key={index}>
-                <span className="badge badge-quiet">{label}</span>
-                <span>{message}</span>
-                {targetId && <button type="button" className="link-btn" onClick={() => onLocate(targetId)}>定位</button>}
-              </li>
-            ))}
-          </ul>}
-          {!hasErrors && !token && <p className="hint">已检查本地规则。登录后可检查重复联系。</p>}
+          {findings.length > 0 && (
+            <ul className="model-findings">
+              {findings.map(({ message, targetId, label }, index) => (
+                <li key={index}>
+                  <span className="badge badge-quiet">{label}</span>
+                  <span>{message}</span>
+                  {targetId && (
+                    <button type="button" className="link-btn" onClick={() => onLocate(targetId)}>
+                      {a.locate}
+                    </button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+          {!hasErrors && !token && <p className="hint">{a.localOkLogin}</p>}
           {current.error && <p className="field-error">{current.error}</p>}
-          {review && findings.length === 0 && <p className="hint">本次结构检查未发现问题。</p>}
+          {review && findings.length === 0 && <p className="hint">{a.noFindings}</p>}
         </div>
       )}
     </section>

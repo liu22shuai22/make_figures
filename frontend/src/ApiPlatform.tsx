@@ -3,6 +3,7 @@ import BrandMark from './components/BrandMark'
 import ProviderIcon from './components/ProviderIcon'
 import ThemeToggle from './components/ThemeToggle'
 import type { Theme } from './theme'
+import { useLocale } from './LocaleContext'
 import { downloadText, safeFileName } from './download'
 import {
   activateProvider,
@@ -176,6 +177,7 @@ function providerTone(id?: string | null) {
 }
 
 export default function ApiPlatform({ onBack, onLogin, theme, onToggleTheme, token }: Props) {
+  const { app } = useLocale()
   const [payload, setPayload] = useState<ProvidersPayload>()
   const [form, setForm] = useState(EMPTY_FORM)
   const [models, setModels] = useState<ModelOption[]>([])
@@ -702,12 +704,12 @@ export default function ApiPlatform({ onBack, onLogin, theme, onToggleTheme, tok
         <div className="brand">
           <BrandMark />
           <div className="brand-text">
-            <h1>API 平台</h1>
+            <h1>{app.api.title}</h1>
           </div>
         </div>
         <div className="toolbar">
           <button type="button" className="btn" onClick={onBack}>
-            返回工作台
+            {app.backWorkbench}
           </button>
           <ThemeToggle theme={theme} onToggle={onToggleTheme} />
         </div>

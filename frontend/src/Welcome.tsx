@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import ThemeToggle from './components/ThemeToggle'
+import LanguageToggle from './components/LanguageToggle'
 import BrandMark from './components/BrandMark'
 import AccountMenu from './components/AccountMenu'
 import SiteFooter from './components/SiteFooter'
@@ -7,12 +8,15 @@ import { SAMPLE_JSON, SAMPLE_NAME, sampleStats } from './sample'
 import { REPO_URL } from './site'
 import { parseSpec } from './spec'
 import type { Theme } from './theme'
+import { useLocale } from './LocaleContext'
 
 interface WelcomeProps {
   /** 进入工作台并聚焦「描述你的系统」 */
   onStart: () => void
   /** 进入工作台并载入选课样例（自动出图） */
   onSample: () => void
+  /** 进入工作台并载入用例图样例 */
+  onUseCaseSample: () => void
   /** 直接进入工作台，保留已有草稿 */
   onOpen: () => void
   /** 打开登录页 */
@@ -23,14 +27,15 @@ interface WelcomeProps {
   username: string | null
   theme: Theme
   onToggleTheme: () => void
-  /** 打开会员页 */
 }
-
-const STEPS = ['描述系统', '核对与微调', '下载图片']
 
 /** 演示卡里逐字出现的那一句，和下面导出的选课图是同一份例子 */
 const DEMO_SENTENCE = '学生可以选修多门课程，每门课程也可以被多名学生选修，选课时记录成绩。'
 const DEMO_MARKS = ['学生', '课程', '选修', '成绩']
+
+/** 用例图页签对应的描述（图书借阅样例） */
+const DEMO_UC_SENTENCE = '读者可以借书、还书和查询馆藏；借还时要验证身份，续借可作为借书的扩展。'
+const DEMO_UC_MARKS = ['读者', '借书', '还书', '查询馆藏', '验证身份', '续借']
 
 type DemoPlay = 'write' | 'draw' | 'reveal' | 'show'
 
@@ -55,8 +60,16 @@ function splitMarks(text: string, marks: string[]) {
   return parts
 }
 
-function DemoSentence({ live }: { live: boolean }) {
-  const parts = splitMarks(DEMO_SENTENCE, DEMO_MARKS)
+function DemoSentence({
+  live,
+  text = DEMO_SENTENCE,
+  marks = DEMO_MARKS,
+}: {
+  live: boolean
+  text?: string
+  marks?: string[]
+}) {
+  const parts = splitMarks(text, marks)
   let index = 0
   return (
     <p className={'demo-text' + (live ? ' is-live' : '')}>
@@ -122,28 +135,23 @@ function DemoSketch({ drawing, leaving }: { drawing: boolean; leaving: boolean }
   )
 }
 
-const CAPS: { icon: CapIcon; title: string; desc: string }[] = [
-  {
-    icon: 'diagram',
-    title: '整体 E-R 图',
-    desc: '实体画方框、联系画菱形，基数标在连线上；三元联系与自联系同样支持。',
-  },
-  {
-    icon: 'layers',
-    title: '实体属性图',
-    desc: '每个实体单独出一张属性图，主键带下划线，字段多也不会把整体图挤乱。',
-  },
-  {
-    icon: 'sliders',
-    title: '生成后仍可编辑',
-    desc: '初稿是表单而不是图片：改字段、调基数、拖动布局，再重新排版出图。',
-  },
-  {
-    icon: 'download',
-    title: '导出与存档',
-    desc: 'PNG 位图与 SVG 矢量直接下载，规格还能导出 JSON 存档，随时再导入。',
-  },
+/**
+ * 欢迎页「体验示例」图种入口。以后加新图种：这里加一项 + 接线 onXxxSample，不必改标题文案。
+ */
+const TRY_SAMPLES: {
+  id: string
+  labelKey: 'tryEr' | 'tryUsecase'
+  testId: string
+  /** 对应 WelcomeProps 里的样例回调 */
+  action: 'er' | 'usecase'
+}[] = [
+  { id: 'er', labelKey: 'tryEr', testId: 'try-sample', action: 'er' },
+  { id: 'usecase', labelKey: 'tryUsecase', testId: 'try-usecase-sample', action: 'usecase' },
 ]
+
+type CapIcon = 'diagram' | 'layers' | 'sliders' | 'download'
+
+const CAP_ICONS: CapIcon[] = ['diagram', 'layers', 'sliders', 'download']
 
 /** 示例规模，给首屏的规格行用 */
 const STATS = sampleStats()
@@ -159,18 +167,15 @@ const SPEC = PARSED.ok ? PARSED.spec : null
  * 三个可以「照抄」的场景。prompt 是写给模型看的完整描述，
  * 用户复制后直接粘到工作台，就能得到对应的一套图。
  */
+/** 场景卡：prompt/实体名仍用中文（给模型与样例一致）；展示名走 locale */
 const SCENARIOS: {
   id: string
-  name: string
-  brief: string
   entities: string[]
   relations: string[]
   prompt: string
 }[] = [
   {
     id: 'library',
-    name: '图书借阅',
-    brief: '借阅联系带借出与归还日期，书本还要归到馆藏分类。',
     entities: ['读者', '图书', '分类'],
     relations: ['借阅', '属于'],
     prompt:
@@ -178,8 +183,6 @@ const SCENARIOS: {
   },
   {
     id: 'shop',
-    name: '电商订单',
-    brief: '订单与商品是多对多，还要记数量和成交单价。',
     entities: ['用户', '商品', '订单', '支付'],
     relations: ['下单', '包含', '付款'],
     prompt:
@@ -187,8 +190,6 @@ const SCENARIOS: {
   },
   {
     id: 'hr',
-    name: '人事考勤',
-    brief: '员工归属部门，打卡与请假各自成实体。',
     entities: ['员工', '部门', '考勤记录', '请假单'],
     relations: ['属于', '打卡', '申请'],
     prompt:
@@ -196,60 +197,43 @@ const SCENARIOS: {
   },
 ]
 
-const FAQ: { q: string; a: string }[] = [
-  {
-    q: '一个系统最多能画多大？',
-    a: '单个系统最多 24 个实体、40 条联系，每个实体或联系最多 12 个属性。超出上限时，工作台会提示具体原因。',
-  },
-  {
-    q: '生成的图还能改吗？',
-    a: '能。生成的结果是表单不是图片：加字段、改主键、调基数、拖动实体位置都可以，改完重新排版即可，不用重新描述一遍。',
-  },
-  {
-    q: '导出的图放进 Word 会糊吗？',
-    a: '要贴进文档选 PNG，按当前画布出图，正文里够清晰；要打印或继续放大选 SVG，矢量格式放大到任意尺寸都不失真。两种格式都在预览下方一键下载。',
-  },
-  {
-    q: '我描述的内容会被保存吗？',
-    a: '描述只用于这一次生成，不写入数据库；用量页只统计请求数和 token 数量，不保留原文。生成的规格与图只存在于你自己的浏览器里，除非你主动导出。',
-  },
-]
-
 /**
- * 演示卡里可切换的三张图。meta 显示在窗口栏右侧，
- * 作用是把「这套图里有什么」说清楚，而不只是列三个文件名。
+ * 演示卡里可切换的图。label/meta/title 在渲染时按 locale 填。
  */
 const DEMO_FIGURES = [
   {
-    key: 'overview',
+    key: 'overview' as const,
+    kind: 'er' as const,
     src: '/sample-overview.png',
-    label: '整体 E-R 图',
-    meta: '联系带「成绩」属性',
     width: 547,
     height: 645,
     alt: '选课示例生成的整体 E-R 图：学生与课程经「选修」联系相连，联系带「成绩」属性',
   },
   {
-    key: 'student',
+    key: 'student' as const,
+    kind: 'er' as const,
     src: '/sample-entity-1.png',
-    label: '学生属性图',
-    meta: '3 个属性 · 主键 学号',
     width: 707,
     height: 528,
     alt: '学生实体的属性图：学号（主键）、姓名、专业三个属性',
   },
   {
-    key: 'course',
+    key: 'course' as const,
+    kind: 'er' as const,
     src: '/sample-entity-2.png',
-    label: '课程属性图',
-    meta: '3 个属性 · 主键 课程编号',
     width: 737,
     height: 533,
     alt: '课程实体的属性图：课程编号（主键）、课程名、学分三个属性',
   },
+  {
+    key: 'usecase' as const,
+    kind: 'usecase' as const,
+    src: '/sample-usecase.png',
+    width: 720,
+    height: 379,
+    alt: '图书借阅用例图：读者与管理员关联借书、还书、查询馆藏；含验证身份 include 与续借 extend',
+  },
 ]
-
-type CapIcon = 'diagram' | 'layers' | 'sliders' | 'download'
 
 function CapGlyph({ name }: { name: CapIcon }) {
   const common = {
@@ -293,16 +277,17 @@ function CapGlyph({ name }: { name: CapIcon }) {
   )
 }
 
-/** 图形记法：和教材画法一致，让人一眼确认「出的是标准 E-R 图」 */
-const NOTATION: { fig: NotationFig; name: string; desc: string }[] = [
-  { fig: 'entity', name: '实体', desc: '矩形框，框内写实体名' },
-  { fig: 'relation', name: '联系', desc: '菱形框，框内写动词' },
-  { fig: 'attribute', name: '属性', desc: '椭圆，连在实体或联系上' },
-  { fig: 'key', name: '主键', desc: '属性名加下划线' },
-  { fig: 'cardinality', name: '基数', desc: '连线上的 1、n、m' },
-]
-
-type NotationFig = 'entity' | 'relation' | 'attribute' | 'key' | 'cardinality'
+type NotationFig =
+  | 'entity'
+  | 'relation'
+  | 'attribute'
+  | 'key'
+  | 'cardinality'
+  | 'actor'
+  | 'usecase'
+  | 'boundary'
+  | 'association'
+  | 'include'
 
 function NotationGlyph({ fig }: { fig: NotationFig }) {
   const s = { stroke: 'currentColor', strokeWidth: 1.4, fill: 'none' as const }
@@ -338,22 +323,85 @@ function NotationGlyph({ fig }: { fig: NotationFig }) {
       </svg>
     )
   }
+  if (fig === 'cardinality') {
+    return (
+      <svg width="64" height="34" viewBox="0 0 64 34" aria-hidden="true">
+        <rect x="0.5" y="13" width="17" height="12" rx="2" {...s} />
+        <rect x="46.5" y="13" width="17" height="12" rx="2" {...s} />
+        <path d="M17.5 19h29" {...s} />
+        <text x="23" y="12" textAnchor="middle" fontSize="10.5" fill="currentColor" stroke="none">
+          1
+        </text>
+        <text x="41" y="12" textAnchor="middle" fontSize="10.5" fill="currentColor" stroke="none">
+          n
+        </text>
+      </svg>
+    )
+  }
+  if (fig === 'actor') {
+    return (
+      <svg width="64" height="34" viewBox="0 0 64 34" aria-hidden="true">
+        <circle cx="32" cy="7.5" r="3.2" {...s} />
+        <path d="M32 10.8v8.2M26.5 14.2h11M32 19l-4.2 7.5M32 19l4.2 7.5" {...s} strokeLinecap="round" />
+      </svg>
+    )
+  }
+  if (fig === 'usecase') {
+    return (
+      <svg width="64" height="34" viewBox="0 0 64 34" aria-hidden="true">
+        <ellipse cx="32" cy="17" rx="24" ry="11" {...s} />
+        <text x="32" y="20" textAnchor="middle" fontSize="9" fill="currentColor" stroke="none">
+          借书
+        </text>
+      </svg>
+    )
+  }
+  if (fig === 'boundary') {
+    return (
+      <svg width="64" height="34" viewBox="0 0 64 34" aria-hidden="true">
+        <rect x="8" y="4" width="48" height="26" rx="1" {...s} />
+        <text x="32" y="13" textAnchor="middle" fontSize="8" fill="currentColor" stroke="none">
+          系统
+        </text>
+        <ellipse cx="32" cy="23" rx="12" ry="5.5" {...s} />
+      </svg>
+    )
+  }
+  if (fig === 'association') {
+    return (
+      <svg width="64" height="34" viewBox="0 0 64 34" aria-hidden="true">
+        <circle cx="10" cy="8" r="2.4" {...s} />
+        <path d="M10 10.5v6M6.5 13h7M10 16.5 7 22M10 16.5 13 22" {...s} strokeWidth={1.2} strokeLinecap="round" />
+        <path d="M14 14h18" {...s} />
+        <ellipse cx="48" cy="17" rx="12" ry="7" {...s} />
+      </svg>
+    )
+  }
   return (
     <svg width="64" height="34" viewBox="0 0 64 34" aria-hidden="true">
-      <rect x="0.5" y="13" width="17" height="12" rx="2" {...s} />
-      <rect x="46.5" y="13" width="17" height="12" rx="2" {...s} />
-      <path d="M17.5 19h29" {...s} />
-      <text x="23" y="12" textAnchor="middle" fontSize="10.5" fill="currentColor" stroke="none">
-        1
-      </text>
-      <text x="41" y="12" textAnchor="middle" fontSize="10.5" fill="currentColor" stroke="none">
-        n
+      <ellipse cx="14" cy="17" rx="10" ry="7" {...s} />
+      <path d="M24 17h22" {...s} strokeDasharray="3 2" />
+      <path d="M42 13.5 48 17 42 20.5" {...s} strokeLinejoin="round" />
+      <ellipse cx="54" cy="17" rx="8" ry="6" {...s} />
+      <text x="35" y="12" textAnchor="middle" fontSize="7.5" fill="currentColor" stroke="none">
+        «include»
       </text>
     </svg>
   )
 }
 
-export default function Welcome({ onStart, onSample, onOpen, onLogin, onLogout, username, theme, onToggleTheme }: WelcomeProps) {
+export default function Welcome({
+  onStart,
+  onSample,
+  onUseCaseSample,
+  onOpen,
+  onLogin,
+  onLogout,
+  username,
+  theme,
+  onToggleTheme,
+}: WelcomeProps) {
+  const { locale, setLocale, welcome: t } = useLocale()
   const pageRef = useRef<HTMLDivElement>(null)
   const heroRef = useRef<HTMLElement>(null)
   const tiltRef = useRef<HTMLDivElement>(null)
@@ -365,6 +413,26 @@ export default function Welcome({ onStart, onSample, onOpen, onLogin, onLogout, 
   const [copyError, setCopyError] = useState<string | null>(null)
   const copyTimer = useRef<number | null>(null)
   const demoFigure = DEMO_FIGURES[demoIndex]
+  const demoChrome = (() => {
+    if (demoFigure.key === 'overview') {
+      return { label: t.demoOverview, meta: t.demoMetaOverview, title: t.demoTitleCourse }
+    }
+    if (demoFigure.key === 'student') {
+      return { label: t.demoStudent, meta: t.demoMetaStudent, title: t.demoTitleCourse }
+    }
+    if (demoFigure.key === 'course') {
+      return { label: t.demoCourse, meta: t.demoMetaCourse, title: t.demoTitleCourse }
+    }
+    return { label: t.demoUsecase, meta: t.demoMetaUsecase, title: t.demoTitleLibrary }
+  })()
+  const trySampleRun: Record<(typeof TRY_SAMPLES)[number]['action'], () => void> = {
+    er: onSample,
+    usecase: onUseCaseSample,
+  }
+  const notationGroups = [
+    { id: 'er', title: t.notationEr, items: t.notationItems.er },
+    { id: 'usecase', title: t.notationUc, items: t.notationItems.usecase },
+  ]
 
   useEffect(() => () => {
     if (copyTimer.current) window.clearTimeout(copyTimer.current)
@@ -442,7 +510,7 @@ export default function Welcome({ onStart, onSample, onOpen, onLogin, onLogout, 
       if (copyTimer.current) window.clearTimeout(copyTimer.current)
       copyTimer.current = window.setTimeout(() => setCopied(null), 4000)
     } catch {
-      setCopyError('浏览器没允许自动复制，请手动选中下面这段描述。')
+      setCopyError(t.copyError)
     }
   }
 
@@ -484,19 +552,20 @@ export default function Welcome({ onStart, onSample, onOpen, onLogin, onLogout, 
           <BrandMark />
           <div className="brand-text">
             <strong className="welcome-brand">ERFlow</strong>
-            <span className="welcome-brand-sub">中文 E-R 图工作台</span>
+            <span className="welcome-brand-sub">{t.brandSub}</span>
           </div>
         </div>
 
         <div className="top-actions">
           <div className="top-tools">
+            <LanguageToggle locale={locale} onChange={setLocale} />
             <a
               className="icon-ghost"
               href={REPO_URL}
               target="_blank"
               rel="noreferrer noopener"
-              aria-label="在 GitHub 上查看源码"
-              title="在 GitHub 上查看源码"
+              aria-label={t.github}
+              title={t.github}
               data-testid="github-link"
             >
               <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
@@ -507,34 +576,52 @@ export default function Welcome({ onStart, onSample, onOpen, onLogin, onLogout, 
           </div>
           <div className="top-session">
             {username ? (
-              <AccountMenu username={username} onLogout={onLogout} />
+              <AccountMenu
+                username={username}
+                onLogout={onLogout}
+                logoutLabel={t.logout}
+                signedInLabel={t.signedIn}
+              />
             ) : (
               <button type="button" className="btn btn-ghost" onClick={onLogin} data-testid="login-entry">
-                登录
+                {t.login}
               </button>
             )}
             <button type="button" className="btn top-go" onClick={onOpen} data-testid="enter-workbench">
-              进入工作台
+              {t.enterWorkbench}
             </button>
           </div>
         </div>
       </header>
 
       <main className="hero" ref={heroRef}>
-        {/* 景深层：大块 E-R 符号漂在演示卡周围，一眼能看出前后景深 */}
+        {/* 景深层：E-R 与用例符号漂在演示卡周围，建立前后景深 */}
         <div className="hero-space" aria-hidden="true">
           <span className="hero-glyph hero-glyph-entity">
             <i />
-            实体
+            {t.glyphEntity}
           </span>
           <span className="hero-glyph hero-glyph-rel">
             <i />
-            联系
+            {t.glyphRelation}
           </span>
           <span className="hero-glyph hero-glyph-attr">
             <i />
-            属性
+            {t.glyphAttr}
           </span>
+          <span className="hero-glyph hero-glyph-actor" title={t.glyphActor}>
+            <svg width="22" height="28" viewBox="0 0 22 28" fill="none" aria-hidden="true">
+              <circle cx="11" cy="5" r="3.2" stroke="currentColor" strokeWidth="1.4" />
+              <path
+                d="M11 8.4v9M5.5 12h11M11 17.4 6.2 25M11 17.4 15.8 25"
+                stroke="currentColor"
+                strokeWidth="1.4"
+                strokeLinecap="round"
+              />
+            </svg>
+            {t.glyphActor}
+          </span>
+          <span className="hero-glyph hero-glyph-usecase">{t.glyphUsecase}</span>
           <span className="hero-glyph hero-glyph-card">
             <b />
             <b />
@@ -547,32 +634,45 @@ export default function Welcome({ onStart, onSample, onOpen, onLogin, onLogout, 
         <div className="hero-left">
           <section className="hero-copy">
             <h1>
-              用自然语言生成 <span className="hl">E-R 图</span>
+              {t.heroTitleBefore} <span className="hl">{t.heroBrand}</span>
               <span className="hero-dash" aria-hidden="true">
                 -
               </span>
-              <span className="hero-sgi" title="通向SGI">
-                通向SGI
+              <span className="hero-sgi" title={t.heroSgi}>
+                {t.heroSgi}
               </span>
             </h1>
             <p className="hero-sub">
-              描述你的系统，生成完整 E-R 图与实体属性图。
-              <span className="hero-sub-line">可编辑，并导出 PNG 或 SVG。</span>
+              {t.heroSub}
+              <span className="hero-sub-line">{t.heroSubLine}</span>
             </p>
             <div className="hero-actions">
               <button type="button" className="btn btn-primary btn-lg" onClick={onStart} data-testid="start-drawing">
-                开始绘图
+                {t.startDrawing}
               </button>
-              <button type="button" className="btn btn-lg" onClick={onSample} data-testid="try-sample">
-                体验示例
-              </button>
+              <div className="hero-try" role="group" aria-label={t.trySample}>
+                <span className="hero-try-label">{t.trySample}</span>
+                <div className="hero-try-switch">
+                  {TRY_SAMPLES.map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      className="hero-try-btn"
+                      onClick={trySampleRun[item.action]}
+                      data-testid={item.testId}
+                    >
+                      {t[item.labelKey]}
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
           </section>
 
           {/* 三步流程：桌面在按钮下方；移动端拆出包裹后排到演示卡之后 */}
           <div className="hero-guide">
-            <ol className="hero-steps" aria-label="使用流程">
-              {STEPS.map((step, i) => (
+            <ol className="hero-steps" aria-label={t.stepsLabel}>
+              {t.steps.map((step, i) => (
                 <li key={step}>
                   <span className="step-num" aria-hidden="true">
                     {i + 1}
@@ -581,22 +681,22 @@ export default function Welcome({ onStart, onSample, onOpen, onLogin, onLogout, 
                 </li>
               ))}
             </ol>
-            <p className="hero-spec" data-testid="hero-spec" title={`示例规格来自 ${SAMPLE_NAME}`}>
-              <span className="hero-spec-label">右侧示例</span>
+            <p className="hero-spec" data-testid="hero-spec" title={`${t.heroSpecLabel} · ${SAMPLE_NAME}`}>
+              <span className="hero-spec-label">{t.heroSpecLabel}</span>
               <span>
-                <b>{STATS.entities}</b> 实体
+                <b>{STATS.entities}</b> {t.heroSpecEntity}
               </span>
               <span>
-                <b>{STATS.relations}</b> 联系
+                <b>{STATS.relations}</b> {t.heroSpecRelation}
               </span>
               <span>
-                <b>{STATS.attrs}</b> 属性
+                <b>{STATS.attrs}</b> {t.heroSpecAttr}
               </span>
               <span>
-                出图 <b>3</b> 张
+                {t.heroSpecFigures} <b>3</b>
               </span>
             </p>
-            <p className="hero-note">单系统最多 24 个实体、40 条联系。</p>
+            <p className="hero-note">{t.heroNote}</p>
           </div>
         </div>
 
@@ -613,14 +713,27 @@ export default function Welcome({ onStart, onSample, onOpen, onLogin, onLogout, 
               <i />
               <i />
             </span>
-            <span className="demo-chrome-title">选课系统</span>
+            <span className="demo-chrome-title">
+              {demoView === 'spec' ? t.demoTitleCourse : demoChrome.title}
+            </span>
             {/* 窗口栏右侧跟着当前图变：这套图里到底有什么，一眼能读到 */}
             <span className="demo-chrome-meta" data-testid="demo-meta">
-              {demoView === 'spec' ? '结构化规格' : demoFigure.meta}
+              {demoView === 'spec' ? t.demoMetaSpec : demoChrome.meta}
             </span>
           </div>
           <div className="demo-input">
-            <DemoSentence live={play === 'write'} />
+            <DemoSentence
+              key={demoView === 'figure' && demoFigure.kind === 'usecase' ? 'uc' : 'er'}
+              live={play === 'write' && demoView === 'figure' && demoFigure.kind === 'er'}
+              text={
+                demoView === 'figure' && demoFigure.kind === 'usecase'
+                  ? DEMO_UC_SENTENCE
+                  : DEMO_SENTENCE
+              }
+              marks={
+                demoView === 'figure' && demoFigure.kind === 'usecase' ? DEMO_UC_MARKS : DEMO_MARKS
+              }
+            />
           </div>
           <div className={'demo-arrow' + (play === 'draw' ? ' is-hot' : '')} aria-hidden="true">
             <span className="demo-arrow-icon">
@@ -629,7 +742,7 @@ export default function Welcome({ onStart, onSample, onOpen, onLogin, onLogout, 
               </svg>
             </span>
             <span className="demo-arrow-text">
-              {play === 'write' ? '写下描述' : play === 'draw' ? '正在生成' : '生成'}
+              {play === 'write' ? t.demoWrite : play === 'draw' ? t.demoDrawing : t.demoGenerate}
             </span>
           </div>
           <div className="demo-output">
@@ -641,11 +754,12 @@ export default function Welcome({ onStart, onSample, onOpen, onLogin, onLogout, 
                     <div className="spec-head">
                       <strong>{SPEC.title}</strong>
                       <span>
-                        {STATS.entities} 实体 · {STATS.relations} 联系 · {STATS.attrs} 属性
+                        {STATS.entities} {t.heroSpecEntity} · {STATS.relations} {t.heroSpecRelation} · {STATS.attrs}{' '}
+                        {t.heroSpecAttr}
                       </span>
                     </div>
                     <div className="spec-group">
-                      <span className="spec-group-label">实体</span>
+                      <span className="spec-group-label">{t.heroSpecEntity}</span>
                       <ul className="spec-list">
                         {SPEC.entities.map((entity) => (
                           <li key={entity.id}>
@@ -662,7 +776,7 @@ export default function Welcome({ onStart, onSample, onOpen, onLogin, onLogout, 
                       </ul>
                     </div>
                     <div className="spec-group">
-                      <span className="spec-group-label">联系</span>
+                      <span className="spec-group-label">{t.heroSpecRelation}</span>
                       <ul className="spec-list">
                         {SPEC.relations.map((relation) => (
                           <li key={relation.id}>
@@ -691,12 +805,17 @@ export default function Welcome({ onStart, onSample, onOpen, onLogin, onLogout, 
                       </ul>
                     </div>
                     <div className="spec-group">
-                      <span className="spec-group-label">规模</span>
+                      <span className="spec-group-label">{t.specScale}</span>
                       <ul className="spec-list spec-meters">
                         {[
-                          { label: '实体', value: STATS.entities, max: 15 },
-                          { label: '联系', value: STATS.relations, max: 30 },
-                          { label: '属性', value: Math.max(...SPEC.entities.map((e) => e.attrs.length)), max: 12, hint: '每个实体' },
+                          { label: t.heroSpecEntity, value: STATS.entities, max: 15 },
+                          { label: t.heroSpecRelation, value: STATS.relations, max: 30 },
+                          {
+                            label: t.heroSpecAttr,
+                            value: Math.max(...SPEC.entities.map((e) => e.attrs.length)),
+                            max: 12,
+                            hint: t.specPerEntity,
+                          },
                         ].map((meter) => (
                           <li key={meter.label}>
                             <span className="spec-meter-label">{meter.label}</span>
@@ -712,7 +831,8 @@ export default function Welcome({ onStart, onSample, onOpen, onLogin, onLogout, 
                       </ul>
                     </div>
                     <p className="spec-foot">
-                      就是 <code>{SAMPLE_NAME}</code>：工作台里改这份结构，图跟着重排。
+                      {t.specFoot} <code>{SAMPLE_NAME}</code>
+                      {t.specFootAfter}
                     </p>
                   </div>
                 ) : (
@@ -734,15 +854,32 @@ export default function Welcome({ onStart, onSample, onOpen, onLogin, onLogout, 
               </div>
             </div>
           </div>
-          {/* 图索引：三张图点一下就能看；「规格」页是同一份数据的另一面 */}
-          <div className="demo-files" role="group" aria-label="示例生成的图与规格">
-            {DEMO_FIGURES.map((fig, i) => (
+          {/* 图索引：E-R 三张 + 用例图；「规格」页仍是选课 E-R 的另一面 */}
+          <div className="demo-files" role="group" aria-label={t.demoFilesAria}>
+            {DEMO_FIGURES.map((fig, i) => {
+              const label =
+                fig.key === 'overview'
+                  ? t.demoOverview
+                  : fig.key === 'student'
+                    ? t.demoStudent
+                    : fig.key === 'course'
+                      ? t.demoCourse
+                      : t.demoUsecase
+              const meta =
+                fig.key === 'overview'
+                  ? t.demoMetaOverview
+                  : fig.key === 'student'
+                    ? t.demoMetaStudent
+                    : fig.key === 'course'
+                      ? t.demoMetaCourse
+                      : t.demoMetaUsecase
+              return (
               <button
                 type="button"
                 key={fig.key}
                 className={'demo-file' + (demoView === 'figure' && i === demoIndex ? ' is-current' : '')}
                 aria-pressed={demoView === 'figure' && i === demoIndex}
-                title={fig.meta}
+                title={meta}
                 onClick={() => {
                   settlePlay()
                   setDemoIndex(i)
@@ -750,21 +887,22 @@ export default function Welcome({ onStart, onSample, onOpen, onLogin, onLogout, 
                 }}
                 data-testid={`demo-file-${fig.key}`}
               >
-                {fig.label}
+                {label}
               </button>
-            ))}
+              )
+            })}
             <button
               type="button"
               className={'demo-file demo-file-spec' + (demoView === 'spec' ? ' is-current' : '')}
               aria-pressed={demoView === 'spec'}
-              title="查看这份描述解析出的结构化规格"
+              title={t.demoSpecTitle}
               onClick={() => {
                 settlePlay()
                 setDemoView('spec')
               }}
               data-testid="demo-file-spec"
             >
-              规格
+              {t.demoSpec}
             </button>
           </div>
         </figure>
@@ -775,13 +913,14 @@ export default function Welcome({ onStart, onSample, onOpen, onLogin, onLogout, 
 
       <section className="caps" aria-labelledby="caps-title" data-reveal>
         <header className="caps-head">
-          <h2 id="caps-title">一次描述，得到一套图</h2>
+          <h2 id="caps-title">{t.capsTitle}</h2>
+          <p className="caps-lead">{t.capsLead}</p>
         </header>
         <ul className="caps-grid">
-          {CAPS.map((cap) => (
+          {t.caps.map((cap, i) => (
             <li key={cap.title}>
               <span className="cap-icon" aria-hidden="true">
-                <CapGlyph name={cap.icon} />
+                <CapGlyph name={CAP_ICONS[i] ?? 'diagram'} />
               </span>
               <h3>{cap.title}</h3>
               <p>{cap.desc}</p>
@@ -793,21 +932,28 @@ export default function Welcome({ onStart, onSample, onOpen, onLogin, onLogout, 
       <section className="scenes" aria-labelledby="scenes-title" data-reveal>
         <header className="section-head">
           <div>
-            <h2 id="scenes-title">不知道怎么写？先拿走一个场景</h2>
-            <p>复制卡里的描述，贴到工作台就能出对应的一套图。</p>
+            <h2 id="scenes-title">{t.scenesTitle}</h2>
+            <p>{t.scenesLead}</p>
           </div>
         </header>
         <ul className="scene-grid">
-          {SCENARIOS.map((scene) => (
+          {SCENARIOS.map((scene) => {
+            const copy = t.scenes.find((item) => item.id === scene.id)
+            return (
             <li key={scene.id} className="scene-card">
               <div className="scene-top">
-                <h3>{scene.name}</h3>
-                <span className="scene-count">{scene.entities.length + 1} 张图</span>
+                <div className="scene-title-row">
+                  <span className="scene-kind">E-R</span>
+                  <h3>{copy?.name ?? scene.id}</h3>
+                </div>
+                <span className="scene-count">
+                  {scene.entities.length + 1} {t.sceneFigures}
+                </span>
               </div>
-              <p className="scene-brief">{scene.brief}</p>
+              <p className="scene-brief">{copy?.brief}</p>
               <dl className="scene-spec">
                 <div>
-                  <dt>实体</dt>
+                  <dt>{t.heroSpecEntity}</dt>
                   <dd>
                     {scene.entities.map((entity) => (
                       <span key={entity} className="scene-chip">
@@ -817,7 +963,7 @@ export default function Welcome({ onStart, onSample, onOpen, onLogin, onLogout, 
                   </dd>
                 </div>
                 <div>
-                  <dt>联系</dt>
+                  <dt>{t.heroSpecRelation}</dt>
                   <dd>
                     {scene.relations.map((relation) => (
                       <span key={relation} className="scene-chip is-rel">
@@ -834,16 +980,17 @@ export default function Welcome({ onStart, onSample, onOpen, onLogin, onLogout, 
                   onClick={() => copyPrompt(scene.id, scene.prompt)}
                   data-testid={`copy-${scene.id}`}
                 >
-                  {copied === scene.id ? '已复制' : '复制这段描述'}
+                  {copied === scene.id ? t.sceneCopied : t.sceneCopy}
                 </button>
                 {copied === scene.id && (
                   <button type="button" className="link-btn" onClick={onStart}>
-                    去工作台粘贴 →
+                    {t.sceneGo}
                   </button>
                 )}
               </div>
             </li>
-          ))}
+            )
+          })}
         </ul>
         {copyError && (
           <p className="scene-error" role="status">
@@ -855,32 +1002,37 @@ export default function Welcome({ onStart, onSample, onOpen, onLogin, onLogout, 
       <section className="notation" aria-labelledby="notation-title" data-reveal>
         <div className="notation-inner">
           <header className="notation-head">
-            <h2 id="notation-title">图形记法</h2>
-            <p>与教材画法一致，导出即可贴进课程设计文档。</p>
+            <h2 id="notation-title">{t.notationTitle}</h2>
+            <p>{t.notationLead}</p>
           </header>
-          <ul className="notation-grid">
-            {NOTATION.map((item) => (
-              <li key={item.name}>
-                <span className="notation-fig" aria-hidden="true">
-                  <NotationGlyph fig={item.fig} />
-                </span>
-                <strong>{item.name}</strong>
-                <span className="notation-desc">{item.desc}</span>
-              </li>
-            ))}
-          </ul>
+          {notationGroups.map((group) => (
+            <div key={group.id} className="notation-group">
+              <h3 className="notation-group-title">{group.title}</h3>
+              <ul className="notation-grid">
+                {group.items.map((item) => (
+                  <li key={`${group.id}-${item.name}`}>
+                    <span className="notation-fig" aria-hidden="true">
+                      <NotationGlyph fig={item.fig as NotationFig} />
+                    </span>
+                    <strong>{item.name}</strong>
+                    <span className="notation-desc">{item.desc}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
         </div>
       </section>
 
       <section className="faq" aria-labelledby="faq-title" data-reveal>
         <header className="section-head">
           <div>
-            <h2 id="faq-title">四个常被问到的问题</h2>
-            <p>规模、修改、导出格式，以及描述会被怎么处理。</p>
+            <h2 id="faq-title">{t.faqTitle}</h2>
+            <p>{t.faqLead}</p>
           </div>
         </header>
         <ul className="faq-list">
-          {FAQ.map((item) => (
+          {t.faq.map((item) => (
             <li key={item.q}>
               <details>
                 <summary>
@@ -894,7 +1046,17 @@ export default function Welcome({ onStart, onSample, onOpen, onLogin, onLogout, 
         </ul>
       </section>
 
-      <SiteFooter onWorkbench={onOpen} />
+      <SiteFooter
+        onWorkbench={onOpen}
+        note={t.footNote}
+        badge={t.footBadge}
+        tagline={t.footTagline}
+        navLabel={t.footNav}
+        homeLabel={t.footHome}
+        workbenchLabel={t.footWorkbench}
+        freeLabel={t.footFree}
+        sgiLabel={t.heroSgi}
+      />
     </div>
   )
 }

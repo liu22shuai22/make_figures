@@ -5,6 +5,7 @@ import UsageChart from './components/UsageChart'
 import UsageVolume from './components/UsageVolume'
 import type { Theme } from './theme'
 import { buildSeries, clockTime, number, tokens, type Usage } from './usage'
+import { useLocale } from './LocaleContext'
 
 interface Props {
   onBack: () => void
@@ -32,6 +33,8 @@ function usageStory(usage: Usage, series: ReturnType<typeof buildSeries>) {
 }
 
 export default function TokenUsage({ onBack, theme, onToggleTheme }: Props) {
+  const { app } = useLocale()
+  const u = app.usage
   const [usage, setUsage] = useState<Usage>()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
@@ -79,22 +82,20 @@ export default function TokenUsage({ onBack, theme, onToggleTheme }: Props) {
       <header className="topbar usage-topbar">
         <div className="brand">
           <BrandMark />
-          <div className="brand-text"><h1>Token 用量</h1></div>
+          <div className="brand-text"><h1>{u.title}</h1></div>
         </div>
         <div className="toolbar">
-          <button type="button" className="btn" onClick={onBack} data-testid="usage-back">返回工作台</button>
+          <button type="button" className="btn" onClick={onBack} data-testid="usage-back">{app.backWorkbench}</button>
           <ThemeToggle theme={theme} onToggle={onToggleTheme} />
         </div>
       </header>
 
       <main className="usage-page" aria-busy={loading}>
         <div className="usage-bar">
-          <p className="usage-scope">
-            本机后端的模型调用，按服务器日期归档，含重试与分批补全。
-          </p>
+          <p className="usage-scope">{u.lead}</p>
           <div className="usage-actions">
             {updatedAt && (
-              <span className="usage-stamp">{clockTime(updatedAt)} 更新</span>
+              <span className="usage-stamp">{u.updated(clockTime(updatedAt))}</span>
             )}
             <button
               type="button"
@@ -103,14 +104,14 @@ export default function TokenUsage({ onBack, theme, onToggleTheme }: Props) {
               onClick={() => setRefresh((value) => value + 1)}
               data-testid="usage-refresh"
             >
-              {loading ? '读取中…' : '刷新'}
+              {loading ? u.reading : u.refresh}
             </button>
           </div>
         </div>
 
         {error && usage && (
           <p className="usage-banner" role="alert" data-testid="usage-stale">
-            刷新失败，以下仍为 {updatedAt ? clockTime(updatedAt) : '上次'} 读取的用量。
+            {u.refreshFail(updatedAt ? clockTime(updatedAt) : u.last)}
           </p>
         )}
 

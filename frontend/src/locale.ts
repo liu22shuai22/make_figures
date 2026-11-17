@@ -1,0 +1,306 @@
+export type Locale = 'zh' | 'en'
+
+const STORAGE_KEY = 'erflow-locale'
+
+/** 默认中文；用户选过就按记录的来 */
+export function readLocale(): Locale {
+  try {
+    const saved = window.localStorage.getItem(STORAGE_KEY)
+    if (saved === 'zh' || saved === 'en') return saved
+  } catch {
+    /* 隐私模式忽略 */
+  }
+  return 'zh'
+}
+
+export function applyLocale(locale: Locale, persist = true) {
+  document.documentElement.setAttribute('lang', locale === 'en' ? 'en' : 'zh-CN')
+  if (!persist) return
+  try {
+    window.localStorage.setItem(STORAGE_KEY, locale)
+  } catch {
+    /* 写不进去不影响本次显示 */
+  }
+}
+
+/** 欢迎页文案：中英对照；工作台本轮仍用中文界面 */
+export const welcomeCopy = {
+  zh: {
+    brandSub: '中文语义沙工作台',
+    github: '在 GitHub 上查看源码',
+    login: '登录',
+    logout: '退出登录',
+    enterWorkbench: '进入工作台',
+    langZh: '中',
+    langEn: 'EN',
+    langSwitch: '切换语言',
+    heroTitleBefore: '用自然语言生成',
+    heroBrand: '语义沙',
+    heroSgi: '通向SGI',
+    heroSub: '描述你的系统，生成可编辑的图，并导出 PNG 或 SVG。',
+    heroSubLine: '图种在工作台切换，右侧是选课示例。',
+    startDrawing: '开始绘图',
+    trySample: '体验示例',
+    tryEr: 'E-R 图',
+    tryUsecase: '用例图',
+    steps: ['描述系统', '核对与微调', '下载图片'] as string[],
+    stepsLabel: '使用流程',
+    heroSpecLabel: '右侧示例',
+    heroSpecEntity: '实体',
+    heroSpecRelation: '联系',
+    heroSpecAttr: '属性',
+    heroSpecFigures: '出图',
+    heroNote: '图种规模各有上限，超限时工作台会提示原因。',
+    glyphEntity: '实体',
+    glyphRelation: '联系',
+    glyphAttr: '属性',
+    glyphActor: '参与者',
+    glyphUsecase: '用例',
+    demoTitleCourse: '选课系统',
+    demoTitleLibrary: '图书借阅系统',
+    demoMetaSpec: '结构化规格',
+    demoOverview: '整体 E-R 图',
+    demoStudent: '学生属性图',
+    demoCourse: '课程属性图',
+    demoUsecase: '用例图',
+    demoSpec: '规格',
+    demoWrite: '写下描述',
+    demoDrawing: '正在生成',
+    demoGenerate: '生成',
+    capsTitle: '一次描述，按图种出图',
+    capsLead: '从描述到成图，再到微调与导出——同一条工作流。',
+    caps: [
+      { title: '多种图种', desc: '工作台顶栏切换 E-R、用例图等；描述一次，按当前图种出图。' },
+      { title: '实体属性图', desc: 'E-R 下每个实体单独出属性图，主键带下划线，字段多也不挤乱整体图。' },
+      { title: '生成后仍可编辑', desc: '初稿是表单不是图片：改字段、调关系、拖动布局，再重新排版出图。' },
+      { title: '导出与存档', desc: 'PNG / SVG 一键下载；规格可导出 JSON，下次直接导入接着改。' },
+    ],
+    scenesTitle: '不知道怎么写？先拿走一个场景',
+    scenesLead: '以下为 E-R 场景：复制描述，在工作台贴上即可出一套图。',
+    sceneCopy: '复制这段描述',
+    sceneCopied: '已复制',
+    sceneGo: '去工作台粘贴 →',
+    notationTitle: '图形记法',
+    notationLead: 'E-R 与用例图均按教材画法，导出即可贴进课程设计文档。',
+    notationEr: 'E-R 图',
+    notationUc: '用例图',
+    faqTitle: '常被问到的问题',
+    faqLead: '规模、支持的图种、修改、导出，以及描述会被怎么处理。',
+    faq: [
+      {
+        q: '一个系统最多能画多大？',
+        a: '各图种有各自上限（例如 E-R 最多 24 实体 / 40 联系，用例图最多 12 参与者 / 24 用例）。超出时工作台会提示具体原因。',
+      },
+      {
+        q: '支持哪些图？怎么切换？',
+        a: '当前有 E-R 图与 UML 用例图；工作台顶栏切换图种。本页「体验示例」可按图种载入样例。以后上新图种会出现在同一入口。',
+      },
+      {
+        q: '生成的图还能改吗？',
+        a: '能。生成的结果是表单不是图片：加字段、改主键、调基数、拖动位置都可以，改完重新排版即可，不用重新描述一遍。',
+      },
+      {
+        q: '导出的图放进 Word 会糊吗？',
+        a: '要贴进文档选 PNG，按当前画布出图，正文里够清晰；要打印或继续放大选 SVG，矢量格式放大到任意尺寸都不失真。两种格式都在预览下方一键下载。',
+      },
+      {
+        q: '我描述的内容会被保存吗？',
+        a: '描述只用于这一次生成，不写入数据库；用量页只统计请求数和 token 数量，不保留原文。生成的规格与图只存在于你自己的浏览器里，除非你主动导出。',
+      },
+    ],
+    notationItems: {
+      er: [
+        { fig: 'entity', name: '实体', desc: '矩形框，框内写实体名' },
+        { fig: 'relation', name: '联系', desc: '菱形框，框内写动词' },
+        { fig: 'attribute', name: '属性', desc: '椭圆，连在实体或联系上' },
+        { fig: 'key', name: '主键', desc: '属性名加下划线' },
+        { fig: 'cardinality', name: '基数', desc: '连线上的 1、n、m' },
+      ],
+      usecase: [
+        { fig: 'actor', name: '参与者', desc: '小人符号，表示角色' },
+        { fig: 'usecase', name: '用例', desc: '椭圆，框内写动宾短语' },
+        { fig: 'boundary', name: '系统边界', desc: '方框围住系统内用例' },
+        { fig: 'association', name: '关联', desc: '参与者与用例之间的实线' },
+        { fig: 'include', name: '«include»', desc: '虚线箭头，表示包含' },
+      ],
+    },
+    scenes: [
+      {
+        id: 'library',
+        name: '图书借阅',
+        brief: '借阅联系带借出与归还日期，书本还要归到馆藏分类。',
+      },
+      {
+        id: 'shop',
+        name: '电商订单',
+        brief: '订单与商品是多对多，还要记数量和成交单价。',
+      },
+      {
+        id: 'hr',
+        name: '人事考勤',
+        brief: '员工归属部门，打卡与请假各自成实体。',
+      },
+    ],
+    sceneFigures: '张图',
+    copyError: '浏览器没允许自动复制，请手动选中下面这段描述。',
+    demoMetaOverview: '联系带「成绩」属性',
+    demoMetaStudent: '3 个属性 · 主键 学号',
+    demoMetaCourse: '3 个属性 · 主键 课程编号',
+    demoMetaUsecase: 'include · extend',
+    demoFilesAria: '示例生成的图与规格',
+    demoSpecTitle: '查看这份描述解析出的结构化规格',
+    signedIn: '已登录',
+    footBadge: '公测',
+    footTagline: '自然语言凝成可编辑的结构 · 语义沙',
+    footNav: '页脚导航',
+    footHome: '首页',
+    footWorkbench: '工作台',
+    footFree: '免费使用',
+    footNote: '规格与出图均在本地服务完成，不上传第三方',
+    specScale: '规模',
+    specPerEntity: '每个实体',
+    specFoot: '就是',
+    specFootAfter: '：工作台里改这份结构，图跟着重排。',
+    pageTitle: 'ERFlow · 用自然语言生成语义沙',
+  },
+  en: {
+    brandSub: 'Semantic Sand workbench',
+    github: 'View source on GitHub',
+    login: 'Sign in',
+    logout: 'Sign out',
+    enterWorkbench: 'Open workbench',
+    langZh: '中',
+    langEn: 'EN',
+    langSwitch: 'Language',
+    heroTitleBefore: 'Generate',
+    heroBrand: 'Semantic Sand',
+    heroSgi: 'To SGI',
+    heroSub: 'Describe your system, get editable diagrams, export PNG or SVG.',
+    heroSubLine: 'Switch diagram kinds in the workbench. Sample on the right.',
+    startDrawing: 'Start drawing',
+    trySample: 'Try a sample',
+    tryEr: 'E-R',
+    tryUsecase: 'Use case',
+    steps: ['Describe', 'Review & tweak', 'Download'] as string[],
+    stepsLabel: 'How it works',
+    heroSpecLabel: 'Sample',
+    heroSpecEntity: 'entities',
+    heroSpecRelation: 'relations',
+    heroSpecAttr: 'attrs',
+    heroSpecFigures: 'figures',
+    heroNote: 'Each diagram kind has size limits; the workbench explains when you exceed them.',
+    glyphEntity: 'Entity',
+    glyphRelation: 'Rel',
+    glyphAttr: 'Attr',
+    glyphActor: 'Actor',
+    glyphUsecase: 'Use case',
+    demoTitleCourse: 'Course system',
+    demoTitleLibrary: 'Library system',
+    demoMetaSpec: 'Structured spec',
+    demoOverview: 'E-R overview',
+    demoStudent: 'Student attrs',
+    demoCourse: 'Course attrs',
+    demoUsecase: 'Use case',
+    demoSpec: 'Spec',
+    demoWrite: 'Writing',
+    demoDrawing: 'Drawing',
+    demoGenerate: 'Generate',
+    capsTitle: 'One description, many diagram kinds',
+    capsLead: 'From description to figures, then edit and export—one workflow.',
+    caps: [
+      { title: 'Multiple kinds', desc: 'Switch E-R, use case, and more in the workbench toolbar.' },
+      { title: 'Entity attribute diagrams', desc: 'Each entity gets its own attribute figure; primary keys are underlined.' },
+      { title: 'Editable after generation', desc: 'You edit forms, not pixels—then re-layout to refresh the figure.' },
+      { title: 'Export & archive', desc: 'Download PNG/SVG; export JSON specs and import them later.' },
+    ],
+    scenesTitle: 'Need a prompt? Grab a scene',
+    scenesLead: 'These are E-R scenes—copy the text into the workbench. For use cases, try the sample above.',
+    sceneCopy: 'Copy description',
+    sceneCopied: 'Copied',
+    sceneGo: 'Paste in workbench →',
+    notationTitle: 'Notation',
+    notationLead: 'Textbook-style E-R and use case symbols—ready for course reports.',
+    notationEr: 'E-R',
+    notationUc: 'Use case',
+    faqTitle: 'FAQ',
+    faqLead: 'Limits, diagram kinds, editing, export, and what we store.',
+    faq: [
+      {
+        q: 'How large can one system be?',
+        a: 'Each diagram kind has its own caps (e.g. E-R up to 24 entities / 40 relations; use case up to 12 actors / 24 use cases). The workbench explains when you exceed them.',
+      },
+      {
+        q: 'Which diagrams are supported?',
+        a: 'E-R and UML use case today. Switch kinds in the workbench toolbar. Try a sample above by kind. New kinds will share the same entry.',
+      },
+      {
+        q: 'Can I edit after generation?',
+        a: 'Yes. You edit forms, not pixels—add fields, change keys, tweak cardinality, drag layout, then re-layout.',
+      },
+      {
+        q: 'Will exports look blurry in Word?',
+        a: 'Use PNG for documents; use SVG for print or further scaling. Both download under the preview.',
+      },
+      {
+        q: 'Is my description stored?',
+        a: 'Descriptions are used only for that generation and are not written to a database. Usage stats count requests and tokens, not the raw text. Specs and figures stay in your browser unless you export them.',
+      },
+    ],
+    notationItems: {
+      er: [
+        { fig: 'entity', name: 'Entity', desc: 'Rectangle with the entity name' },
+        { fig: 'relation', name: 'Relation', desc: 'Diamond with a verb' },
+        { fig: 'attribute', name: 'Attribute', desc: 'Ellipse linked to entity or relation' },
+        { fig: 'key', name: 'Primary key', desc: 'Attribute name underlined' },
+        { fig: 'cardinality', name: 'Cardinality', desc: '1, n, m on the connector' },
+      ],
+      usecase: [
+        { fig: 'actor', name: 'Actor', desc: 'Stick figure for a role' },
+        { fig: 'usecase', name: 'Use case', desc: 'Ellipse with a verb phrase' },
+        { fig: 'boundary', name: 'System boundary', desc: 'Box around system use cases' },
+        { fig: 'association', name: 'Association', desc: 'Solid line actor ↔ use case' },
+        { fig: 'include', name: '«include»', desc: 'Dashed arrow for inclusion' },
+      ],
+    },
+    scenes: [
+      {
+        id: 'library',
+        name: 'Library loans',
+        brief: 'Loan links carry dates; books belong to a catalog category.',
+      },
+      {
+        id: 'shop',
+        name: 'Shop orders',
+        brief: 'Orders and products are many-to-many, with quantity and unit price.',
+      },
+      {
+        id: 'hr',
+        name: 'HR attendance',
+        brief: 'Staff belong to departments; punch and leave are separate entities.',
+      },
+    ],
+    sceneFigures: 'figures',
+    copyError: 'Clipboard permission denied—please select and copy the text below.',
+    demoMetaOverview: 'Relation has “grade”',
+    demoMetaStudent: '3 attrs · PK student id',
+    demoMetaCourse: '3 attrs · PK course id',
+    demoMetaUsecase: 'include · extend',
+    demoFilesAria: 'Sample figures and spec',
+    demoSpecTitle: 'Structured spec parsed from this description',
+    signedIn: 'Signed in',
+    footBadge: 'Beta',
+    footTagline: 'Natural language into editable structure · Semantic Sand',
+    footNav: 'Footer',
+    footHome: 'Home',
+    footWorkbench: 'Workbench',
+    footFree: 'Free to use',
+    footNote: 'Specs and figures stay on your local service—nothing sent to third parties',
+    specScale: 'Scale',
+    specPerEntity: 'per entity',
+    specFoot: 'This is',
+    specFootAfter: ': edit the structure in the workbench and the figure re-layouts.',
+    pageTitle: 'ERFlow · Semantic Sand from natural language',
+  },
+} as const
+
+export type WelcomeCopy = (typeof welcomeCopy)[Locale]

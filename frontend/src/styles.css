@@ -1576,15 +1576,72 @@ code {
   position: sticky;
   top: 0;
   z-index: 20;
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
-  justify-content: space-between;
-  gap: 12px 20px;
+  gap: 12px 16px;
   padding: 12px 20px;
   background: var(--topbar-bg);
   backdrop-filter: blur(8px);
   border-bottom: 1px solid var(--border);
+}
+
+.topbar > .brand {
+  justify-self: start;
+  min-width: 0;
+}
+
+.topbar > .kind-switch {
+  justify-self: center;
+}
+
+.topbar > .toolbar {
+  justify-self: end;
+}
+
+.kind-switch {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--panel) 88%, var(--border));
+  gap: 2px;
+}
+
+.kind-switch-btn {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  padding: 7px 14px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.kind-switch-btn:hover:not(:disabled) {
+  color: var(--ink);
+}
+
+.kind-switch-btn.is-on {
+  background: var(--panel);
+  color: var(--ink);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--ink) 12%, transparent);
+}
+
+.kind-switch-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.field-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
 }
 
 .brand {
@@ -2399,6 +2456,37 @@ select.input {
 
 .describe-head .hint {
   font-size: 11.5px;
+}
+
+.usecase-review {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow-wrap: anywhere;
+}
+
+.usecase-review > .hint {
+  margin: 4px 0 0;
+}
+
+.usecase-review-findings {
+  display: grid;
+  gap: 8px;
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.usecase-review-findings li {
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+
+.usecase-review-findings p {
+  margin: 4px 0 0;
 }
 
 .describe-channel,
@@ -3430,6 +3518,60 @@ select.input {
   gap: 2px;
 }
 
+/* 顶栏语言切换：紧凑分段，放在 GitHub 左侧 */
+.lang-toggle {
+  display: inline-flex;
+  align-items: stretch;
+  margin-right: 4px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.lang-toggle-btn {
+  margin: 0;
+  padding: 0 9px;
+  height: 32px;
+  border: 0;
+  background: transparent;
+  color: var(--ink-muted);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+}
+
+.lang-toggle-btn + .lang-toggle-btn {
+  border-left: 1px solid transparent;
+}
+
+.lang-toggle-btn:hover {
+  background: var(--chip-bg);
+  color: var(--ink);
+}
+
+.lang-toggle-btn.is-active {
+  background: var(--chip-bg);
+  color: var(--ink);
+}
+
+.lang-toggle-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  z-index: 1;
+}
+
+.welcome-top .lang-toggle:hover,
+.welcome-top .lang-toggle:focus-within {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--chip-bg) 70%, transparent);
+}
+
+.welcome-top .lang-toggle-btn + .lang-toggle-btn {
+  border-left-color: color-mix(in srgb, var(--border) 70%, transparent);
+}
+
 .top-session {
   display: flex;
   align-items: center;
@@ -3659,6 +3801,43 @@ select.input {
   animation-delay: -4s;
 }
 
+/* 用例图漂浮符：参与者 + 用例椭圆，与 E-R 符号形成对照 */
+.hero-glyph-actor {
+  --depth-x: 22px;
+  --depth-y: 26px;
+  --rx: 14deg;
+  --ry: 16deg;
+  --spin: -8deg;
+  top: 58%;
+  right: 8%;
+  width: 72px;
+  height: 78px;
+  gap: 4px;
+  padding: 8px 6px 6px;
+  border-radius: 12px;
+  font-size: 11px;
+  animation-delay: -3.1s;
+}
+
+.hero-glyph-actor svg {
+  display: block;
+  color: var(--ink-soft);
+}
+
+.hero-glyph-usecase {
+  --depth-x: 26px;
+  --depth-y: 14px;
+  --rx: 20deg;
+  --ry: -20deg;
+  --spin: 6deg;
+  top: 28%;
+  right: 28%;
+  width: 100px;
+  height: 46px;
+  border-radius: 999px;
+  animation-delay: -5.2s;
+}
+
 /* 叠着的三张属性卡：强调「一套图」的体积感 */
 .hero-glyph-card {
   --depth-x: 24px;
@@ -3753,6 +3932,12 @@ select.input {
 [data-theme='dark'] .hero-glyph-rel {
   background: color-mix(in srgb, var(--accent) 28%, var(--paper-sunk));
   box-shadow: 0 18px 34px -16px rgba(0, 0, 0, 0.8);
+}
+
+[data-theme='dark'] .hero-glyph-actor,
+[data-theme='dark'] .hero-glyph-usecase {
+  background: var(--paper-sunk);
+  border-color: var(--paper-line-strong);
 }
 
 [data-theme='dark'] .hero-glyph-card b {
@@ -4086,7 +4271,8 @@ select.input {
 .hero-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px;
+  align-items: center;
+  gap: 12px 16px;
   margin-top: 30px;
 }
 
@@ -4095,6 +4281,62 @@ select.input {
   padding: 0 24px;
   border-radius: 10px;
   font-size: 15px;
+}
+
+/* 次要体验入口：标签 + 分段按钮，不与主 CTA 抢权重 */
+.hero-try {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+  padding: 4px 4px 4px 12px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--paper-surface) 78%, transparent);
+  border: 1px solid var(--paper-line);
+}
+
+.hero-try-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+  letter-spacing: 0.02em;
+}
+
+.hero-try-switch {
+  display: inline-flex;
+  align-items: stretch;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--panel);
+  overflow: hidden;
+}
+
+.hero-try-btn {
+  margin: 0;
+  padding: 0 14px;
+  height: 40px;
+  border: 0;
+  background: transparent;
+  color: var(--ink-soft);
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.hero-try-btn + .hero-try-btn {
+  border-left: 1px solid var(--border);
+}
+
+.hero-try-btn:hover {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+
+.hero-try-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  z-index: 1;
 }
 
 /* 三步流程：数字圆点 + 间距断开，读得出是「三步」而不是一句话 */
@@ -4732,6 +4974,14 @@ select.input {
   color: var(--ink);
 }
 
+.caps-lead {
+  margin-top: 8px;
+  max-width: 36em;
+  font-size: 14px;
+  line-height: 1.65;
+  color: var(--ink-muted);
+}
+
 .caps-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -4875,6 +5125,27 @@ select.input {
   align-items: baseline;
   justify-content: space-between;
   gap: 8px;
+}
+
+.scene-title-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+.scene-kind {
+  flex: 0 0 auto;
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border));
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1.4;
 }
 
 .scene-top h3 {
@@ -5108,6 +5379,40 @@ select.input {
   border: 1px solid var(--paper-line);
   border-radius: 14px;
   background: var(--paper-sunk);
+}
+
+.notation-group + .notation-group {
+  margin-top: 20px;
+  padding-top: 18px;
+  border-top: 1px solid var(--paper-line);
+}
+
+.notation-group-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--paper-line-strong);
+  background: var(--paper-surface);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--ink-soft);
+}
+
+.notation-group-title::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.notation-group .notation-grid {
+  margin-top: 12px;
 }
 
 .notation-head {
@@ -5466,9 +5771,10 @@ select.input {
     margin-top: 26px;
   }
 
-  /* 竖排时只留两枚漂浮符号，避免压住标题 */
+  /* 竖排时精简漂浮符，避免压住标题；留一枚用例符呼应双图种 */
   .hero-glyph-attr,
   .hero-glyph-card,
+  .hero-glyph-actor,
   .hero-orb-b {
     display: none;
   }
@@ -5487,6 +5793,15 @@ select.input {
     right: 4%;
     width: 64px;
     height: 64px;
+    font-size: 11px;
+  }
+
+  .hero-glyph-usecase {
+    top: auto;
+    right: 42%;
+    bottom: 10%;
+    width: 78px;
+    height: 36px;
     font-size: 11px;
   }
 
@@ -5542,13 +5857,32 @@ select.input {
   }
 
   .topbar {
+    grid-template-columns: minmax(0, 1fr) auto;
     padding: 10px 12px;
     gap: 10px;
+  }
+
+  .topbar > .kind-switch {
+    grid-column: 1 / -1;
+    justify-self: stretch;
+  }
+
+  .kind-switch {
+    width: 100%;
+  }
+
+  .kind-switch-btn {
+    flex: 1;
+    text-align: center;
   }
 
   /* 窄屏只留品牌名，副标题让位给工具按钮 */
   .brand-text p {
     display: none;
+  }
+
+  .field-row {
+    grid-template-columns: 1fr;
   }
 
   .brand-mark {
@@ -5660,9 +5994,34 @@ select.input {
     margin-left: 0;
   }
 
-  .hero-actions .btn {
-    flex: 1 1 0;
+  .hero-actions {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+
+  .hero-actions .btn-primary {
+    width: 100%;
+  }
+
+  .hero-try {
+    width: 100%;
+    justify-content: space-between;
+    padding: 6px 6px 6px 12px;
+  }
+
+  .hero-try-switch {
+    flex: 1 1 auto;
     min-width: 0;
+  }
+
+  .hero-try-btn {
+    flex: 1 1 0;
+  }
+
+  .notation-group + .notation-group {
+    margin-top: 16px;
+    padding-top: 14px;
   }
 
   .hero-copy h1 {

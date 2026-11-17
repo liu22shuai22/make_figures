@@ -1,26 +1,23 @@
 import type { ChangeEvent } from 'react'
-import type { CanvasRatio } from '../types'
+import type { CanvasRatio, DiagramKind } from '../types'
 import CanvasRatioSelect from './CanvasRatioSelect'
+import { useLocale } from '../LocaleContext'
 
 export const DESCRIBE_LIMIT = 4000
 
-const STARTERS: { id: string; label: string; text: string }[] = [
-  {
-    id: 'library',
-    label: '图书借阅',
-    text: '读者可以借阅多本图书，同一本图书也可以被不同读者先后借阅，每次借阅要记录借出日期和归还日期；每本图书属于一个馆藏分类。',
-  },
-  {
-    id: 'shop',
-    label: '电商订单',
-    text: '用户可以下多个订单，一个订单可以包含多种商品，每件商品要记录购买数量和成交单价；每个订单通过一次支付结清，支付记录支付方式与支付时间。',
-  },
-  {
-    id: 'hr',
-    label: '人事考勤',
-    text: '员工隶属于一个部门，每个部门可以有多名员工；员工每天打卡产生考勤记录，记录打卡时间和状态；员工可以提交请假单，请假单记录开始日期、结束日期和审批结果。',
-  },
-]
+const ER_STARTER_TEXTS: Record<string, string> = {
+  library:
+    '读者可以借阅多本图书，同一本图书也可以被不同读者先后借阅，每次借阅要记录借出日期和归还日期；每本图书属于一个馆藏分类。',
+  shop:
+    '用户可以下多个订单，一个订单可以包含多种商品，每件商品要记录购买数量和成交单价；每个订单通过一次支付结清，支付记录支付方式与支付时间。',
+  hr: '员工隶属于一个部门，每个部门可以有多名员工；员工每天打卡产生考勤记录，记录打卡时间和状态；员工可以提交请假单，请假单记录开始日期、结束日期和审批结果。',
+}
+
+const USECASE_STARTER_TEXTS: Record<string, string> = {
+  library: '图书借阅系统里，读者可以借书、还书和查询馆藏；管理员也可以办理借书、还书，并协助查询馆藏。',
+  ticket: '在线订票系统中，旅客可以查询车次、下单购票和退票；客服可以协助退票与改签咨询。',
+  campus: '选课系统里，学生可以查询课程、选课和退课；教务员可以发布课程并审核容量调整。',
+}
 
 interface DescribeBoxProps {
   text: string
@@ -36,11 +33,15 @@ interface DescribeBoxProps {
   /** 当前接通渠道短提示；点开 API 平台 */
   channelLabel?: string | null
   onOpenChannel?: () => void
-  /** 空态快捷载入选课样例 */
+  /** 空态快捷载入样例 */
   onLoadSample?: () => void
+  sampleLabel?: string
   /** 是否已登录；未登录时露出登录引导 */
   loggedIn?: boolean
   onLogin?: () => void
+  diagramKind?: DiagramKind
+  /** 用例图等后端未通时：生成按钮可点，由上层给出提示 */
+  generateDisabledReason?: string | null
 }
 
 export default function DescribeBox({
@@ -56,34 +57,53 @@ export default function DescribeBox({
   channelLabel,
   onOpenChannel,
   onLoadSample,
+  sampleLabel,
   loggedIn = true,
   onLogin,
+  diagramKind = 'er',
+  generateDisabledReason = null,
 }: DescribeBoxProps) {
+  const { app } = useLocale()
+  const d = app.describe
   const length = Array.from(text.trim()).length
   const empty = length === 0
   const overLimit = length > DESCRIBE_LIMIT
+  const isUseCase = diagramKind === 'usecase'
+  const starters = isUseCase
+    ? [
+        { id: 'library', label: d.starterLib, text: USECASE_STARTER_TEXTS.library },
+        { id: 'ticket', label: d.starterTicket, text: USECASE_STARTER_TEXTS.ticket },
+        { id: 'campus', label: d.starterCampus, text: USECASE_STARTER_TEXTS.campus },
+      ]
+    : [
+        { id: 'library', label: d.starterLib, text: ER_STARTER_TEXTS.library },
+        { id: 'shop', label: d.starterShop, text: ER_STARTER_TEXTS.shop },
+        { id: 'hr', label: d.starterHr, text: ER_STARTER_TEXTS.hr },
+      ]
 
   const busy = generating || rendering
-  const phaseLabel = rendering ? '正在排版出图' : generating ? '正在生成规格' : null
+  const phaseLabel = rendering ? d.phaseLayout : generating ? d.phaseGen : null
+  const generateBlocked = Boolean(generateDisabledReason)
 
   return (
     <section className={`describe${busy ? ' is-busy' : ''}`} aria-labelledby="describe-title" aria-busy={busy}>
       <div className="describe-head">
-        <h3 id="describe-title">描述你的系统</h3>
+        <h3 id="describe-title">{isUseCase ? d.titleUc : d.titleEr}</h3>
         {phaseLabel ? (
           <span className="describe-status" data-testid="describe-status">
             <span className="spinner spinner-sm spinner-accent" aria-hidden="true" />
             <span>
               <strong>{phaseLabel}</strong>
-              {generating && !rendering ? ' · 复杂需求可能需要一分钟' : ''}
+              {generating && !rendering ? d.complexWait : ''}
             </span>
           </span>
         ) : !loggedIn && onLogin ? (
           <button type="button" className="describe-login" onClick={onLogin} data-testid="describe-login">
-            未登录 · 去登录
+            {d.notLogged}
           </button>
         ) : (
-          channelLabel && onOpenChannel && (
+          channelLabel &&
+          onOpenChannel && (
             <button type="button" className="describe-channel" onClick={onOpenChannel}>
               {channelLabel}
             </button>
@@ -95,7 +115,9 @@ export default function DescribeBox({
         className="textarea"
         rows={5}
         value={text}
-        placeholder={replacing ? '输入下一份系统描述' : '例如：图书馆管理系统，读者借阅图书，图书属于分类'}
+        placeholder={
+          replacing ? (isUseCase ? d.phNextUc : d.phNextEr) : isUseCase ? d.phUc : d.phEr
+        }
         onChange={(event: ChangeEvent<HTMLTextAreaElement>) => onTextChange(event.target.value)}
         aria-describedby="describe-counter"
         data-testid="describe-input"
@@ -104,8 +126,8 @@ export default function DescribeBox({
 
       {!replacing && empty && (
         <div className="describe-starters">
-          <span>试一个例子</span>
-          {STARTERS.map((starter) => (
+          <span>{d.tryExample}</span>
+          {starters.map((starter) => (
             <button
               key={starter.id}
               type="button"
@@ -124,7 +146,7 @@ export default function DescribeBox({
               disabled={generating || rendering}
               data-testid="load-sample"
             >
-              选课样例出图
+              {sampleLabel || (isUseCase ? app.sampleUc : app.sampleEr)}
             </button>
           )}
         </div>
@@ -136,9 +158,9 @@ export default function DescribeBox({
           className={`counter${overLimit ? ' is-over' : ''}`}
           data-testid="describe-counter"
         >
-          {length} / {DESCRIBE_LIMIT} 字
+          {length} / {DESCRIBE_LIMIT} {d.chars}
         </span>
-        <CanvasRatioSelect ratio={ratio} onChange={onRatioChange} disabled={busy} />
+        <CanvasRatioSelect ratio={ratio} onChange={onRatioChange} disabled={busy || generateBlocked} />
         <button
           type="button"
           className={busy ? 'btn btn-primary is-busy' : replacing ? 'btn btn-generate' : 'btn btn-primary'}
@@ -146,14 +168,18 @@ export default function DescribeBox({
           disabled={busy || empty || overLimit}
           title={
             empty
-              ? '先写一段系统描述'
+              ? d.writeFirst
               : overLimit
-                ? '描述超过 4000 字，需要精简'
-                : !loggedIn
-                  ? '登录后才能生成'
-                  : replacing
-                    ? '新图生成后替换当前草稿'
-                    : '生成模型并自动排版'
+                ? d.overLimit
+                : generateDisabledReason
+                  ? generateDisabledReason
+                  : !loggedIn
+                    ? d.loginToGen
+                    : replacing
+                      ? d.replaceDraft
+                      : isUseCase
+                        ? d.genUcSpec
+                        : d.genErAuto
           }
           data-testid="generate"
           aria-busy={busy}
@@ -161,14 +187,16 @@ export default function DescribeBox({
           {busy ? (
             <>
               <span className="spinner spinner-sm" aria-hidden="true" />
-              {rendering ? '排版中…' : '生成中…'}
+              {rendering ? app.busyLayoutEllipsis : app.busyGenerateEllipsis}
             </>
-          ) : !loggedIn ? (
-            '登录后生成'
+          ) : !loggedIn && !generateBlocked ? (
+            d.loginThenGen
           ) : replacing ? (
-            '生成新图并替换'
+            isUseCase ? d.genReplaceUc : d.genReplaceEr
+          ) : isUseCase ? (
+            d.genUc
           ) : (
-            '生成 E-R 图'
+            d.genEr
           )}
         </button>
       </div>
@@ -176,11 +204,11 @@ export default function DescribeBox({
       {error && (
         <p className="field-error" role="alert" data-testid="describe-error">
           {error}
-          {onLogin && /登录/.test(error) && (
+          {onLogin && (error.includes('登录') || /sign in/i.test(error)) && (
             <>
               {' '}
               <button type="button" className="link-btn" onClick={onLogin}>
-                去登录
+                {app.goLogin}
               </button>
             </>
           )}

@@ -1,5 +1,62 @@
 /** 实体、联系、属性的可编辑草稿模型。id 只在前端内部使用，提交给后端时统一换成名称。 */
 
+/** 工作台图种：E-R 与 UML 用例图共用一页，靠顶栏切换 */
+export type DiagramKind = 'er' | 'usecase'
+
+export type ActorKind = 'primary' | 'secondary'
+
+export interface ActorDraft {
+  id: string
+  name: string
+  kind: ActorKind
+}
+
+export interface UseCaseDraft {
+  id: string
+  name: string
+}
+
+/** 参与者与用例之间的关联（通信）线 */
+export interface UseCaseLinkDraft {
+  id: string
+  actorId: string
+  useCaseId: string
+}
+
+/** 用例之间的依赖：include / extend / 泛化 */
+export type UseCaseDepKind = 'include' | 'extend' | 'generalize'
+
+export interface UseCaseDepDraft {
+  id: string
+  kind: UseCaseDepKind
+  /** 箭头起点用例（include/extend 的源；泛化的子用例） */
+  fromId: string
+  /** 箭头终点用例（include/extend 的目标；泛化的父用例） */
+  toId: string
+}
+
+export interface UseCaseSpecDraft {
+  title: string
+  /** 系统边界名称，画在用例外围方框上 */
+  system: string
+  actors: ActorDraft[]
+  useCases: UseCaseDraft[]
+  links: UseCaseLinkDraft[]
+  dependencies: UseCaseDepDraft[]
+}
+
+/** 提交 / 导出用的用例图 JSON（无内部 id） */
+export interface UseCaseJsonSpec {
+  kind: 'usecase'
+  title: string
+  system: string
+  actors: { name: string; kind: ActorKind }[]
+  useCases: { name: string }[]
+  links: { actor: string; useCase: string }[]
+  dependencies: { kind: UseCaseDepKind; from: string; to: string }[]
+  positions?: DiagramPositions
+}
+
 export type Cardinality = '1' | 'm' | 'n' | 'p'
 
 export const CARDINALITIES: { value: Cardinality; label: string }[] = [
@@ -91,6 +148,12 @@ export interface ImageFrame extends DiagramFrame {
 export interface DiagramLayout extends ImageFrame {
   entities: EntityBox[]
   referenceCount?: number
+  useCaseQuality?: {
+    overlaps: number
+    boxHits: number
+    lineConflicts: number
+    labelConflicts: number
+  }
   quality?: {
     planar: boolean
     overlaps: number
@@ -102,7 +165,7 @@ export interface DiagramLayout extends ImageFrame {
 
 /** 欢迎页跳到工作台时携带的一次性指令 */
 export interface WorkbenchCommand {
-  type: 'focus' | 'sample'
+  type: 'focus' | 'sample' | 'usecase-sample'
   nonce: number
 }
 

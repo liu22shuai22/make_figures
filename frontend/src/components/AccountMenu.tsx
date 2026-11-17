@@ -3,6 +3,10 @@ import { useId, useRef, useState } from 'react'
 interface AccountMenuProps {
   username: string
   onLogout: () => void
+  /** 默认「退出登录」；欢迎页英文态传入 Sign out */
+  logoutLabel?: string
+  /** 默认「已登录」；用于 title 前缀 */
+  signedInLabel?: string
 }
 
 function PersonIcon() {
@@ -15,7 +19,12 @@ function PersonIcon() {
 }
 
 /** 已登录顶栏的账户卡片。 */
-export default function AccountMenu({ username, onLogout }: AccountMenuProps) {
+export default function AccountMenu({
+  username,
+  onLogout,
+  logoutLabel = '退出登录',
+  signedInLabel = '已登录',
+}: AccountMenuProps) {
   const [open, setOpen] = useState(false)
   const trigger = useRef<HTMLButtonElement>(null)
   const panelId = useId()
@@ -42,7 +51,7 @@ export default function AccountMenu({ username, onLogout }: AccountMenuProps) {
         ref={trigger}
         type="button"
         className="user-chip user-chip-btn"
-        title={`已登录：${username}`}
+        title={`${signedInLabel}：${username}`}
         data-testid="user-chip"
         aria-expanded={open}
         aria-haspopup="menu"
@@ -75,7 +84,7 @@ export default function AccountMenu({ username, onLogout }: AccountMenuProps) {
               onLogout()
             }}
           >
-            退出登录
+            {logoutLabel}
           </button>
         </div>
       )}
