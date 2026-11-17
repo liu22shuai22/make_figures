@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { PointerEvent as ReactPointerEvent } from 'react'
 import { number } from '../usage'
+import { useLocale } from '../LocaleContext'
 
 interface Props {
   input: number
@@ -54,17 +55,20 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value))
 }
 
-function transistorsOf(tokens: number) {
-  const raw = Math.max(0, tokens) * 12_000
-  if (raw >= 1e8) return `${(raw / 1e8).toFixed(1).replace(/\.0$/, '')} 亿`
-  if (raw >= 1e4) return `${Math.round(raw / 1e4)} 万`
-  return number(Math.round(raw))
-}
-
 /**
  * 用量芯片 die：多层互连纹理、焊盘环、功能岛；拖转 + 滚轮调厚。
  */
 export default function UsageVolume({ input, output, inputPct, outputPct }: Props) {
+  const { app } = useLocale()
+  const u = app.usage
+
+  function transistorsOf(tokens: number) {
+    const raw = Math.max(0, tokens) * 12_000
+    if (raw >= 1e8) return u.unitYi((raw / 1e8).toFixed(1).replace(/\.0$/, ''))
+    if (raw >= 1e4) return u.unitWan(String(Math.round(raw / 1e4)))
+    return number(Math.round(raw))
+  }
+
   const matrix = useRef(multiply(rotateY(-24), rotateX(-62)))
   const velocity = useRef({ x: 0, y: 0 })
   const [transform, setTransform] = useState(() => cssMatrix(matrix.current))
@@ -170,7 +174,7 @@ export default function UsageVolume({ input, output, inputPct, outputPct }: Prop
         onPointerUp={endDrag}
         onPointerCancel={endDrag}
         role="img"
-        aria-label={`今日用量芯片：输入 ${number(input)}（${inputPct}%），输出 ${number(output)}（${outputPct}%），示意约 ${totalTx} 晶体管。拖转旋转，滚轮调节厚度。`}
+        aria-label={u.volumeAria(number(input), inputPct, number(output), outputPct, totalTx)}
         tabIndex={0}
         onKeyDown={(event) => {
           const step = event.shiftKey ? 18 : 12
@@ -285,7 +289,7 @@ export default function UsageVolume({ input, output, inputPct, outputPct }: Prop
               <span className="vol-die-mark">
                 <strong>DIE</strong>
                 <em>{totalTx}</em>
-                <small>示意晶体管</small>
+                <small>{u.transistors}</small>
               </span>
             </i>
 
@@ -300,7 +304,7 @@ export default function UsageVolume({ input, output, inputPct, outputPct }: Prop
         <span className="vol-readout-in">
           <i aria-hidden="true" />
           <span className="vol-readout-copy">
-            <strong>输入</strong>
+            <strong>{u.input}</strong>
             <b>{number(input)}</b>
             <small>{inputPct}% · {transistorsOf(input)}</small>
           </span>
@@ -308,7 +312,7 @@ export default function UsageVolume({ input, output, inputPct, outputPct }: Prop
         <span className="vol-readout-out">
           <i aria-hidden="true" />
           <span className="vol-readout-copy">
-            <strong>输出</strong>
+            <strong>{u.output}</strong>
             <b>{number(output)}</b>
             <small>{outputPct}% · {transistorsOf(output)}</small>
           </span>
@@ -316,7 +320,7 @@ export default function UsageVolume({ input, output, inputPct, outputPct }: Prop
       </div>
 
       <p className="vol-hint">
-        {active ? '检视中' : '拖转检视 · 滚轮调厚度'}
+        {active ? u.inspecting : u.inspectHint}
       </p>
     </div>
   )

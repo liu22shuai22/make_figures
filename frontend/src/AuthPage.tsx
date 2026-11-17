@@ -17,8 +17,6 @@ interface AuthPageProps {
   onToggleTheme: () => void
 }
 
-const USERNAME_LIMITS = '2–24 位'
-const PASSWORD_LIMITS = '6–64 位'
 
 /* ---------- 精美内联矢量图标 ---------- */
 
@@ -146,7 +144,7 @@ export default function AuthPage({ mode, onModeChange, onSuccess, onBack, theme,
       await requestEmailCode(email.trim())
       setCooldown(60)
     } catch (requestError) {
-      setError((requestError as Error).message || '验证码没有发出去，请稍后再试。')
+      setError((requestError as Error).message || a.errSendCode)
     } finally {
       setSendingCode(false)
     }
@@ -171,23 +169,23 @@ export default function AuthPage({ mode, onModeChange, onSuccess, onBack, theme,
 
     const name = username.trim()
     if (name.length < 2 || name.length > 24) {
-      setError(`用户名需要 ${USERNAME_LIMITS}，中文、字母、数字都可以。`)
+      setError(a.errName(a.nameHint))
       return
     }
     if (mode === 'register' && !emailOk) {
-      setError('请填写有效的邮箱，例如 name@example.com。')
+      setError(a.errEmail)
       return
     }
     if (mode === 'register' && !codeOk) {
-      setError('请填写邮箱收到的 6 位验证码。')
+      setError(a.errCode)
       return
     }
     if (password.length < 6 || password.length > 64) {
-      setError(`密码需要 ${PASSWORD_LIMITS}。`)
+      setError(a.errPassword(a.pwHint))
       return
     }
     if (mode === 'register' && password !== confirm) {
-      setError('两次输入的密码不一致，请再核对一遍。')
+      setError(a.errConfirm)
       return
     }
 
@@ -198,7 +196,7 @@ export default function AuthPage({ mode, onModeChange, onSuccess, onBack, theme,
         : await loginAccount(name, password)
       onSuccess(session)
     } catch (requestError) {
-      setError((requestError as Error).message || '请求失败，请稍后重试。')
+      setError((requestError as Error).message || a.errRequest)
     } finally {
       setBusy(false)
     }
@@ -255,7 +253,7 @@ export default function AuthPage({ mode, onModeChange, onSuccess, onBack, theme,
                     value={username}
                     onChange={(event) => setUsername(event.target.value)}
                     autoComplete="username"
-                    placeholder="请输入你的用户名"
+                    placeholder={a.username}
                     data-testid="auth-username"
                     maxLength={24}
                     autoFocus
@@ -380,7 +378,7 @@ export default function AuthPage({ mode, onModeChange, onSuccess, onBack, theme,
                   <div className="auth-strength" data-level={strength.level} aria-live="polite">
                     <span className="auth-strength-bars" aria-hidden="true"><i /><i /><i /></span>
                     <span className="auth-strength-text">
-                      {strength.level === 0 ? '建议混合字母和数字' : `密码强度：${strength.label}`}
+                      {strength.level === 0 ? a.strengthHint : a.strengthLabel(strength.label)}
                     </span>
                   </div>
                 </>
@@ -399,7 +397,7 @@ export default function AuthPage({ mode, onModeChange, onSuccess, onBack, theme,
                 {busy ? (
                   <>
                     <span className="auth-spinner" aria-hidden="true" />
-                    <span>正在验证…</span>
+                    <span>{a.busy}</span>
                   </>
                 ) : (
                   <>

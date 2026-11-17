@@ -41,11 +41,10 @@ const EMPTY_FORM = {
 type RailScope = 'all' | 'local' | 'cn' | 'intl'
 
 /** 按「本机 / 国内 / 国际」分轨，对应 E-R 分区接线 */
-const RAIL_GROUPS: { id: Exclude<RailScope, 'all'>; label: string; ids: readonly string[] }[] = [
-  { id: 'local', label: '本机', ids: ['newapi', 'ollama', 'magpie'] },
+const RAIL_GROUPS: { id: Exclude<RailScope, 'all'>; ids: readonly string[] }[] = [
+  { id: 'local', ids: ['newapi', 'ollama', 'magpie'] },
   {
     id: 'cn',
-    label: '国内',
     ids: [
       'siliconflow',
       'deepseek',
@@ -67,7 +66,6 @@ const RAIL_GROUPS: { id: Exclude<RailScope, 'all'>; label: string; ids: readonly
   },
   {
     id: 'intl',
-    label: '国际',
     ids: [
       'openai',
       'anthropic',
@@ -84,18 +82,11 @@ const RAIL_GROUPS: { id: Exclude<RailScope, 'all'>; label: string; ids: readonly
 
 const QUICK_PRESET_IDS = RAIL_GROUPS.flatMap((group) => group.ids)
 
-const RAIL_SCOPE_TABS: { id: RailScope; label: string }[] = [
-  { id: 'all', label: '全部' },
-  { id: 'local', label: '本机' },
-  { id: 'cn', label: '国内' },
-  { id: 'intl', label: '国际' },
-]
-
-function hostOf(url: string) {
+function hostOf(url: string, empty = '') {
   try {
     return new URL(url).host || url
   } catch {
-    return url || '未填地址'
+    return url || empty
   }
 }
 
@@ -178,6 +169,13 @@ function providerTone(id?: string | null) {
 
 export default function ApiPlatform({ onBack, onLogin, theme, onToggleTheme, token }: Props) {
   const { app } = useLocale()
+  const a = app.api
+  const scopeLabel: Record<RailScope, string> = {
+    all: a.all,
+    local: a.local,
+    cn: a.cn,
+    intl: a.intl,
+  }
   const [payload, setPayload] = useState<ProvidersPayload>()
   const [form, setForm] = useState(EMPTY_FORM)
   const [models, setModels] = useState<ModelOption[]>([])
@@ -282,12 +280,12 @@ export default function ApiPlatform({ onBack, onLogin, theme, onToggleTheme, tok
             hostOf(item.base_url).toLowerCase().includes(q)
           )
         })
-      return { ...group, items }
+      return { ...group, label: scopeLabel[group.id], items }
     }).filter((group) => {
       if (railScope !== 'all' && group.id !== railScope) return false
       return group.items.length > 0
     })
-  }, [quickPresets, railQuery, railScope])
+  }, [quickPresets, railQuery, railScope, a.local, a.cn, a.intl])
 
   const railVisibleCount = useMemo(
     () => railGroups.reduce((sum, group) => sum + group.items.length, 0),
@@ -422,7 +420,7 @@ export default function ApiPlatform({ onBack, onLogin, theme, onToggleTheme, tok
     try {
       setPayload(await fetchProviders(token))
     } catch (err) {
-      setError(err instanceof Error ? err.message : '读取失败')
+      setError(err instanceof Error ? err.message : a.readFail)
     } finally {
       setLoading(false)
     }
@@ -432,7 +430,7 @@ export default function ApiPlatform({ onBack, onLogin, theme, onToggleTheme, tok
     if (!token) return
     const withSecrets =
       providers.length > 0 &&
-      window.confirm('是否一并导出明文 API Key？\n选「取消」则只导出模板（不含密钥，适合课堂发放）。')
+      window.confirm(a.confirmExportSecrets)
     setBusy(true)
     setError(null)
     try {
@@ -445,11 +443,11 @@ export default function ApiPlatform({ onBack, onLogin, theme, onToggleTheme, tok
       )
       setNotice(
         withSecrets
-          ? `已导出 ${bundle.providers.length} 条渠道（含密钥，请妥善保管）。`
-          : `已导出 ${bundle.providers.length} 条渠道模板（不含密钥）。`,
+          ? a.exportedSecrets(bundle.providers.length)
+          : a.exportedTemplate(bundle.providers.length),
       )
     } catch (err) {
-      setError(err instanceof Error ? err.message : '导出失败')
+      setError(err instanceof Error ? err.message : a.exportFail)
     } finally {
       setBusy(false)
     }
@@ -467,22 +465,22 @@ export default function ApiPlatform({ onBack, onLogin, theme, onToggleTheme, tok
       try {
         bundle = JSON.parse(text) as Record<string, unknown>
       } catch {
-        throw new Error('不是有效的 JSON 文件')
+        throw new Error(a.badJson)
       }
       const mode: 'merge' | 'replace' =
         providers.length === 0
           ? 'replace'
-          : window.confirm('合并到现有渠道？\n确定 = 合并（同 id 覆盖）\n取消 = 整表替换')
+          : window.confirm(a.confirmImportMode)
             ? 'merge'
             : 'replace'
       const next = await importProviders(token, bundle, mode)
       setPayload(next)
       setModels([])
       clearProbeEcho()
-      setNotice(`已${mode === 'merge' ? '合并' : '替换'}导入 ${next.providers.length} 条渠道。`)
+      setNotice(a.imported(mode, next.providers.length))
       sparkWire()
     } catch (err) {
-      setError(err instanceof Error ? err.message : '导入失败')
+      setError(err instanceof Error ? err.message : a.importFail)
     } finally {
       setBusy(false)
     }
@@ -544,7 +542,7 @@ export default function ApiPlatform({ onBack, onLogin, theme, onToggleTheme, tok
     try {
       const next = await saveProvider(token, {
         id: form.id || undefined,
-        name: form.name.trim() || '未命名渠道',
+        name: form.name.trim() || a.unnamedChannel,
         kind: form.kind,
         base_url: form.base_url.trim(),
         api_key: form.api_key,
@@ -553,14 +551,14 @@ export default function ApiPlatform({ onBack, onLogin, theme, onToggleTheme, tok
         activate: true,
       })
       setPayload(next)
-      setNotice('已保存并接通。')
+      setNotice(a.savedConnected)
       sparkWire()
       const preset = next.presets.find((item) => item.id === 'newapi') || next.presets[0]
       setForm(preset ? formFromPreset(preset) : EMPTY_FORM)
       setModels([])
       setShowKey(false)
     } catch (err) {
-      setError(err instanceof Error ? err.message : '保存失败')
+      setError(err instanceof Error ? err.message : a.saveFail)
     } finally {
       setBusy(false)
     }
@@ -572,10 +570,10 @@ export default function ApiPlatform({ onBack, onLogin, theme, onToggleTheme, tok
     setError(null)
     try {
       setPayload(await activateProvider(token, id))
-      setNotice('已接通此渠道。')
+      setNotice(a.activated)
       sparkWire()
     } catch (err) {
-      setError(err instanceof Error ? err.message : '切换失败')
+      setError(err instanceof Error ? err.message : a.switchFail)
     } finally {
       setBusy(false)
     }
@@ -583,7 +581,7 @@ export default function ApiPlatform({ onBack, onLogin, theme, onToggleTheme, tok
 
   const onDelete = async (id: string) => {
     if (!token) return
-    if (!window.confirm('确定删除这个渠道？')) return
+    if (!window.confirm(a.confirmDelete)) return
     setBusy(true)
     setError(null)
     try {
@@ -593,9 +591,9 @@ export default function ApiPlatform({ onBack, onLogin, theme, onToggleTheme, tok
         const preset = next.presets.find((item) => item.id === 'newapi') || next.presets[0]
         setForm(preset ? formFromPreset(preset) : EMPTY_FORM)
       }
-      setNotice('已删除。')
+      setNotice(a.deleted)
     } catch (err) {
-      setError(err instanceof Error ? err.message : '删除失败')
+      setError(err instanceof Error ? err.message : a.deleteFail)
     } finally {
       setBusy(false)
     }
@@ -615,12 +613,12 @@ export default function ApiPlatform({ onBack, onLogin, theme, onToggleTheme, tok
       setForm((current) => ({
         ...current,
         preset: current.preset === 'custom' || !current.preset ? 'newapi' : current.preset,
-        name: current.name || 'New API 网关',
+        name: current.name || a.newApiGateway,
         kind: 'openai',
         base_url: result.base_url,
       }))
       if (!result.ok) {
-        const detail = result.error || '网关未连通'
+        const detail = result.error || a.gatewayDown
         setError(detail)
         showProbeEcho({ ok: false, models: 0, detail })
       } else if (result.error) {
@@ -633,13 +631,13 @@ export default function ApiPlatform({ onBack, onLogin, theme, onToggleTheme, tok
       } else {
         const detail =
           result.models.length > 0
-            ? `发现 ${result.models.length} 个模型`
-            : '已连通，未返回模型列表'
+            ? a.foundModels(result.models.length)
+            : a.connectedNoModels
         setNotice(detail)
         showProbeEcho({ ok: true, models: result.models.length, detail })
       }
     } catch (err) {
-      const detail = err instanceof Error ? err.message : '探测网关失败'
+      const detail = err instanceof Error ? err.message : a.probeFail
       setError(detail)
       showProbeEcho({ ok: false, models: 0, detail })
     } finally {
@@ -659,9 +657,9 @@ export default function ApiPlatform({ onBack, onLogin, theme, onToggleTheme, tok
         id: form.id || undefined,
       })
       setModels(listed)
-      setNotice(listed.length ? `拉到 ${listed.length} 个模型。` : '接口没有返回模型。')
+      setNotice(listed.length ? a.listedModels(listed.length) : a.listedEmpty)
     } catch (err) {
-      setError(err instanceof Error ? err.message : '拉取模型失败')
+      setError(err instanceof Error ? err.message : a.listFail)
     } finally {
       setBusy(false)
     }
@@ -679,14 +677,14 @@ export default function ApiPlatform({ onBack, onLogin, theme, onToggleTheme, tok
   }
 
   const hopKicker = probing
-    ? '探测中'
+    ? a.probing
     : probeEcho
       ? probeEcho.ok
-        ? '探测通'
-        : '探测断'
+        ? a.probeOk
+        : a.probeBad
       : formReady
-        ? '可接通'
-        : '接驳中'
+        ? a.canConnect
+        : a.wiring
 
   const hopSteps = probing
     ? '…'
@@ -717,7 +715,7 @@ export default function ApiPlatform({ onBack, onLogin, theme, onToggleTheme, tok
 
       <main className="api-platform" aria-busy={loading || busy} data-provider={tone}>
         <div className="api-bar">
-          <p className="api-scope">把模型渠道接进 ERFlow——像连上一条联系。</p>
+          <p className="api-scope">{a.lead}</p>
           <div className="api-bar-actions">
             <button
               type="button"
@@ -725,7 +723,7 @@ export default function ApiPlatform({ onBack, onLogin, theme, onToggleTheme, tok
               onClick={() => setGuideOpen((open) => !open)}
               aria-expanded={guideOpen}
             >
-              {guideOpen ? '收起说明' : '接入说明'}
+              {guideOpen ? a.guideHide : a.guide}
             </button>
             {token && (
               <>
@@ -735,7 +733,7 @@ export default function ApiPlatform({ onBack, onLogin, theme, onToggleTheme, tok
                   disabled={loading || busy}
                   onClick={() => void load()}
                 >
-                  {loading ? '读取中…' : '刷新'}
+                  {loading ? a.reading : a.refresh}
                 </button>
                 <button
                   type="button"
@@ -743,7 +741,7 @@ export default function ApiPlatform({ onBack, onLogin, theme, onToggleTheme, tok
                   disabled={loading || busy || providers.length === 0}
                   onClick={() => void onExport()}
                 >
-                  导出
+                  {a.export}
                 </button>
                 <button
                   type="button"
@@ -751,7 +749,7 @@ export default function ApiPlatform({ onBack, onLogin, theme, onToggleTheme, tok
                   disabled={loading || busy}
                   onClick={() => importInput.current?.click()}
                 >
-                  导入
+                  {a.import}
                 </button>
                 <input
                   ref={importInput}
@@ -768,12 +766,11 @@ export default function ApiPlatform({ onBack, onLogin, theme, onToggleTheme, tok
         {guideOpen && (
           <div className="api-guide">
             <p>
-              推荐{' '}
+              {a.guideBefore}{' '}
               <a href="https://github.com/QuantumNous/new-api" target="_blank" rel="noreferrer">
                 New API
               </a>
-              ：本机 <code>127.0.0.1:3000</code> 起服务，控制台建渠道与令牌后填入本页。也可直连硅基流动、DeepSeek
-              等官方接口。渠道可「导出」成 JSON 备份或课堂模板，「导入」时选择合并或整表替换。
+              {a.guideAfter}
             </p>
           </div>
         )}
@@ -781,11 +778,11 @@ export default function ApiPlatform({ onBack, onLogin, theme, onToggleTheme, tok
         {!token && (
           <div className="api-gate" role="status">
             <div>
-              <strong>登录后管理渠道</strong>
-              <p>密钥只保存在本机，不会上传。</p>
+              <strong>{a.needLoginTitle}</strong>
+              <p>{a.needLoginHint}</p>
             </div>
             <button type="button" className="btn btn-primary" onClick={onLogin}>
-              去登录
+              {a.goLogin}
             </button>
           </div>
         )}
@@ -795,7 +792,7 @@ export default function ApiPlatform({ onBack, onLogin, theme, onToggleTheme, tok
             {(error || notice) && (
               <p className={'api-flash ' + (error ? 'is-error' : 'is-info')} role="status">
                 {error || notice}
-                <button type="button" className="api-flash-close" onClick={() => { setError(null); setNotice(null) }} aria-label="关闭">
+                <button type="button" className="api-flash-close" onClick={() => { setError(null); setNotice(null) }} aria-label={a.close}>
                   ×
                 </button>
               </p>
@@ -809,7 +806,7 @@ export default function ApiPlatform({ onBack, onLogin, theme, onToggleTheme, tok
               }
               data-provider={tone}
             >
-              <div className={'api-status' + statusClass} aria-label="当前启用渠道">
+              <div className={'api-status' + statusClass} aria-label={a.activeAria}>
                 <span className="api-status-badge" aria-hidden="true">
                   <ProviderIcon
                     id={active?.preset || form.preset || 'newapi'}
@@ -821,33 +818,33 @@ export default function ApiPlatform({ onBack, onLogin, theme, onToggleTheme, tok
                 <div className="api-status-copy">
                   {active ? (
                     <>
-                      <p className="api-status-kicker">{active.ready ? '已接通' : '接线未完成'}</p>
+                      <p className="api-status-kicker">{active.ready ? a.connected : a.wireIncomplete}</p>
                       <p className="api-status-title">
                         <strong>{active.name}</strong>
-                        <span>{active.model || '未选模型'}</span>
+                        <span>{active.model || a.noModel}</span>
                       </p>
                       <p className="api-status-sub">
                         {hostOf(active.base_url)}
                         <span aria-hidden="true">·</span>
                         <em className={active.ready ? 'is-ok' : 'is-bad'}>
-                          {active.ready ? '生成将走此渠道' : '补全 Key 与模型'}
+                          {active.ready ? a.genViaChannel : a.fillKeyModel}
                         </em>
                       </p>
                     </>
                   ) : (
                     <>
-                      <p className="api-status-kicker">{readyCount ? '配置中' : '待接线'}</p>
+                      <p className="api-status-kicker">{readyCount ? a.configuring : a.pendingWire}</p>
                       <p className="api-status-title">
-                        <strong>{form.name || '选左侧节点'}</strong>
-                        {readyCount > 0 && <span>{readyCount}/3 已填</span>}
+                        <strong>{form.name || a.pickLeft}</strong>
+                        {readyCount > 0 && <span>{a.filledOf3(readyCount)}</span>}
                       </p>
                       <p className="api-status-sub">
-                        {readySteps.url ? hostOf(form.base_url) : '选节点 → 填 Key → 选模型'}
+                        {readySteps.url ? hostOf(form.base_url, a.noUrl) : a.stepsHint}
                         {readyCount > 0 && !formReady && (
                           <>
                             <span aria-hidden="true">·</span>
                             <em className="is-bad">
-                              {!readySteps.key ? '缺 Key' : !readySteps.model ? '缺模型' : '继续补全'}
+                              {!readySteps.key ? a.needKey : !readySteps.model ? a.needModel : a.keepFilling}
                             </em>
                           </>
                         )}
@@ -877,7 +874,7 @@ export default function ApiPlatform({ onBack, onLogin, theme, onToggleTheme, tok
                     disabled={busy}
                     onClick={() => editProvider(active)}
                   >
-                    编辑
+                    {a.edit}
                   </button>
                 )}
               </div>
@@ -914,13 +911,13 @@ export default function ApiPlatform({ onBack, onLogin, theme, onToggleTheme, tok
                   </svg>
                 )}
 
-                <aside className="api-channels" aria-label="已保存渠道">
+                <aside className="api-channels" aria-label={a.savedChannelsAria}>
                   <header className="api-panel-head">
-                    <h3>{providers.length ? '渠道节点' : '快捷节点'}</h3>
+                    <h3>{providers.length ? a.channelNodes : a.quickNodes}</h3>
                     <span>{providers.length ? providers.length : railVisibleCount}</span>
                   </header>
 
-                  {loading && <p className="api-empty">读取中…</p>}
+                  {loading && <p className="api-empty">{a.reading}</p>}
 
                   {!loading && providers.length > 0 && (
                     <div
@@ -933,13 +930,13 @@ export default function ApiPlatform({ onBack, onLogin, theme, onToggleTheme, tok
                           className="input api-rail-search"
                           value={railQuery}
                           onChange={(event) => setRailQuery(event.target.value)}
-                          placeholder="搜已保存渠道"
-                          aria-label="搜索已保存渠道"
+                          placeholder={a.searchSavedPh}
+                          aria-label={a.searchSavedAria}
                         />
                       </div>
 
                       {savedRail.length === 0 ? (
-                        <p className="api-empty">没有匹配的已保存渠道。</p>
+                        <p className="api-empty">{a.noSavedMatch}</p>
                       ) : (
                         <ul>
                           {savedRail.map((item, index) => {
@@ -973,17 +970,17 @@ export default function ApiPlatform({ onBack, onLogin, theme, onToggleTheme, tok
                                   <span className="api-quick-text">
                                     <strong>{item.name}</strong>
                                     <span>
-                                      {item.model || '未填模型'}
+                                      {item.model || a.noModelFilled}
                                       <i aria-hidden="true"> · </i>
                                       {hostOf(item.base_url)}
                                     </span>
                                   </span>
                                   {isActive ? (
-                                    <em className="api-rail-lead">已接通</em>
+                                    <em className="api-rail-lead">{a.connected}</em>
                                   ) : isEditing ? (
-                                    <em className="api-rail-lead">接线中</em>
+                                    <em className="api-rail-lead">{a.wiringNow}</em>
                                   ) : !item.ready ? (
-                                    <em className="api-rail-lead is-warn">未就绪</em>
+                                    <em className="api-rail-lead is-warn">{a.notReady}</em>
                                   ) : null}
                                 </button>
                                 <div className="api-rail-ops">
@@ -994,7 +991,7 @@ export default function ApiPlatform({ onBack, onLogin, theme, onToggleTheme, tok
                                       disabled={busy}
                                       onClick={() => void onActivate(item.id)}
                                     >
-                                      接通
+                                      {a.connect}
                                     </button>
                                   )}
                                   <button
@@ -1003,7 +1000,7 @@ export default function ApiPlatform({ onBack, onLogin, theme, onToggleTheme, tok
                                     disabled={busy}
                                     onClick={() => void onDelete(item.id)}
                                   >
-                                    删
+                                    {a.deleteShort}
                                   </button>
                                 </div>
                               </li>
@@ -1018,7 +1015,7 @@ export default function ApiPlatform({ onBack, onLogin, theme, onToggleTheme, tok
                         onClick={() => setAddOpen((open) => !open)}
                         aria-expanded={addOpen}
                       >
-                        {addOpen ? '收起新节点' : '加新节点'}
+                        {addOpen ? a.collapseNew : a.addNode}
                       </button>
                     </div>
                   )}
@@ -1027,7 +1024,7 @@ export default function ApiPlatform({ onBack, onLogin, theme, onToggleTheme, tok
                     <div className={'api-rail' + (providers.length ? ' api-rail-presets' : '')}>
                       {providers.length > 0 && (
                         <p className="api-rail-group-label api-rail-presets-label">
-                          从预设拉线
+                          {a.fromPreset}
                           <span>{railVisibleCount}</span>
                         </p>
                       )}
@@ -1036,21 +1033,21 @@ export default function ApiPlatform({ onBack, onLogin, theme, onToggleTheme, tok
                           className="input api-rail-search"
                           value={railQuery}
                           onChange={(event) => setRailQuery(event.target.value)}
-                          placeholder="搜渠道 / 域名"
-                          aria-label="搜索渠道"
+                          placeholder={a.searchPresetPh}
+                          aria-label={a.searchPresetAria}
                         />
-                        <div className="api-rail-scopes" role="tablist" aria-label="分区">
-                          {RAIL_SCOPE_TABS.map((tab) => (
+                        <div className="api-rail-scopes" role="tablist" aria-label={a.scopesAria}>
+                          {(['all', 'local', 'cn', 'intl'] as RailScope[]).map((id) => (
                             <button
-                              key={tab.id}
+                              key={id}
                               type="button"
                               role="tab"
-                              aria-selected={railScope === tab.id}
-                              className={railScope === tab.id ? 'is-on' : undefined}
-                              onClick={() => setRailScope(tab.id)}
+                              aria-selected={railScope === id}
+                              className={railScope === id ? 'is-on' : undefined}
+                              onClick={() => setRailScope(id)}
                             >
-                              {tab.label}
-                              <small>{scopeCounts[tab.id]}</small>
+                              {scopeLabel[id]}
+                              <small>{scopeCounts[id]}</small>
                             </button>
                           ))}
                         </div>
@@ -1058,13 +1055,13 @@ export default function ApiPlatform({ onBack, onLogin, theme, onToggleTheme, tok
 
                       {selectionHidden && (
                         <button type="button" className="api-rail-recall" onClick={revealSelection}>
-                          当前接线在「{selectedRailScope?.label || '全部'}」
-                          <span>回到节点</span>
+                          {a.recall(selectedRailScope ? scopeLabel[selectedRailScope.id] : a.all)}
+                          <span>{a.backToNode}</span>
                         </button>
                       )}
 
                       {railGroups.length === 0 && !selectionHidden && (
-                        <p className="api-empty">没有匹配的节点，换个关键词试试。</p>
+                        <p className="api-empty">{a.noPresetMatch}</p>
                       )}
 
                       {railGroups.map((group) => (
@@ -1093,9 +1090,9 @@ export default function ApiPlatform({ onBack, onLogin, theme, onToggleTheme, tok
                                     <ProviderIcon id={preset.id} size={18} className="api-quick-logo" />
                                     <span className="api-quick-text">
                                       <strong>{preset.name}</strong>
-                                      <span>{hostOf(preset.base_url) || '自定义地址'}</span>
+                                      <span>{hostOf(preset.base_url) || a.customUrl}</span>
                                     </span>
-                                    {on && <em className="api-rail-lead">接线中</em>}
+                                    {on && <em className="api-rail-lead">{a.wiringNow}</em>}
                                   </button>
                                 </li>
                               )
@@ -1110,10 +1107,10 @@ export default function ApiPlatform({ onBack, onLogin, theme, onToggleTheme, tok
                 <div className={'api-editor' + (wireFlash ? ' is-wired' : '')} data-provider={tone}>
                   <span className="api-wire-dock" ref={dockRef} aria-hidden="true" />
                   <header className="api-panel-head">
-                    <h3>{form.id ? '调整接线' : '拉线配置'}</h3>
+                    <h3>{form.id ? a.editWire : a.newWire}</h3>
                     {form.id && (
                       <button type="button" className="api-text-btn" disabled={busy} onClick={resetForm}>
-                        新建
+                        {a.createNew}
                       </button>
                     )}
                   </header>
@@ -1131,24 +1128,24 @@ export default function ApiPlatform({ onBack, onLogin, theme, onToggleTheme, tok
                     <ProviderIcon id={form.preset || 'newapi'} size={16} className="api-hop-logo" />
                     <div className="api-hop-copy">
                       <span className="api-hop-kicker">{hopKicker}</span>
-                      <strong>{form.name || selectedPreset?.name || '未选节点'}</strong>
+                      <strong>{form.name || selectedPreset?.name || a.noNode}</strong>
                     </div>
                     <em className="api-hop-host">
                       {probeEcho
                         ? probeEcho.detail
                         : readySteps.url
-                          ? hostOf(form.base_url)
-                          : '等待地址'}
+                          ? hostOf(form.base_url, a.noUrl)
+                          : a.waitUrl}
                     </em>
                     <span className="api-hop-steps" title={probeEcho ? probeEcho.detail : undefined}>
                       {hopSteps}
-                      {probeEcho?.ok ? <small>模</small> : null}
+                      {probeEcho?.ok ? <small>{a.modelsShort}</small> : null}
                     </span>
                   </div>
 
                   <form className="api-form" onSubmit={onSubmit}>
                     <label className="api-field api-field-full">
-                      <span>预设</span>
+                      <span>{a.preset}</span>
                       <div className="api-preset-select">
                         <ProviderIcon id={form.preset} size={18} className="api-preset-logo" />
                         <select
@@ -1168,19 +1165,19 @@ export default function ApiPlatform({ onBack, onLogin, theme, onToggleTheme, tok
                     </label>
 
                     <label className="api-field">
-                      <span>名称</span>
+                      <span>{a.name}</span>
                       <input
                         className="input"
                         value={form.name}
                         onChange={(event) => setForm({ ...form, name: event.target.value })}
-                        placeholder="例如 New API"
+                        placeholder={a.namePh}
                         required
                         disabled={busy}
                       />
                     </label>
 
                     <label className="api-field">
-                      <span>接口类型</span>
+                      <span>{a.kind}</span>
                       <select
                         className="input"
                         value={form.kind}
@@ -1189,7 +1186,7 @@ export default function ApiPlatform({ onBack, onLogin, theme, onToggleTheme, tok
                         }
                         disabled={busy}
                       >
-                        <option value="openai">OpenAI 兼容</option>
+                        <option value="openai">{a.kindOpenai}</option>
                         <option value="anthropic">Anthropic</option>
                       </select>
                     </label>
@@ -1213,11 +1210,11 @@ export default function ApiPlatform({ onBack, onLogin, theme, onToggleTheme, tok
 
                     <label className={'api-field api-field-full' + (readySteps.key ? ' is-filled' : '')}>
                       <span>
-                        API Key / 令牌
+                        API Key
                         {readySteps.key ? (
                           <i className="api-field-ok" aria-hidden="true" />
                         ) : (
-                          <em className="api-field-need">必填</em>
+                          <em className="api-field-need">{a.required}</em>
                         )}
                       </span>
                       <div className="api-key-row">
@@ -1239,18 +1236,18 @@ export default function ApiPlatform({ onBack, onLogin, theme, onToggleTheme, tok
                           onClick={() => setShowKey((value) => !value)}
                           disabled={busy || !form.api_key}
                         >
-                          {showKey ? '隐藏' : '显示'}
+                          {showKey ? a.hide : a.show}
                         </button>
                       </div>
                     </label>
 
                     <label className={'api-field api-field-full' + (readySteps.model ? ' is-filled' : '')}>
                       <span>
-                        模型 ID
+                        {a.modelId}
                         {readySteps.model ? (
                           <i className="api-field-ok" aria-hidden="true" />
                         ) : (
-                          <em className="api-field-need">必填</em>
+                          <em className="api-field-need">{a.required}</em>
                         )}
                       </span>
                       <div className="api-model-row">
@@ -1258,7 +1255,7 @@ export default function ApiPlatform({ onBack, onLogin, theme, onToggleTheme, tok
                           className="input"
                           value={form.model}
                           onChange={(event) => setForm({ ...form, model: event.target.value })}
-                          placeholder="选择或手填模型名"
+                          placeholder={a.modelPh}
                           required
                           disabled={busy}
                         />
@@ -1268,18 +1265,18 @@ export default function ApiPlatform({ onBack, onLogin, theme, onToggleTheme, tok
                           disabled={busy || !form.base_url}
                           onClick={() => void onListModels()}
                         >
-                          拉取
+                          {a.pull}
                         </button>
                       </div>
                     </label>
 
                     <div className="api-form-actions">
-                      <div className="api-ready" aria-label="接线进度">
-                        <span className={'api-ready-step' + (readySteps.url ? ' is-on' : '')}>地址</span>
+                      <div className="api-ready" aria-label={a.progressAria}>
+                        <span className={'api-ready-step' + (readySteps.url ? ' is-on' : '')}>{a.stepUrl}</span>
                         <span className={'api-ready-step' + (readySteps.key ? ' is-on' : '')}>Key</span>
-                        <span className={'api-ready-step' + (readySteps.model ? ' is-on' : '')}>模型</span>
+                        <span className={'api-ready-step' + (readySteps.model ? ' is-on' : '')}>{a.stepModel}</span>
                         <em className={'api-ready-meta' + (formReady ? ' is-ok' : '')}>
-                          {formReady ? '可接通' : `${readyCount}/3`}
+                          {formReady ? a.canConnect : `${readyCount}/3`}
                         </em>
                       </div>
                       <div className="api-form-btns">
@@ -1287,9 +1284,9 @@ export default function ApiPlatform({ onBack, onLogin, theme, onToggleTheme, tok
                           type="submit"
                           className={'btn btn-primary' + (formReady ? ' is-ready-cta' : '')}
                           disabled={busy || !formReady}
-                          title={formReady ? undefined : '请先填完地址、Key 与模型'}
+                          title={formReady ? undefined : a.fillFirst}
                         >
-                          {busy ? '处理中…' : form.id ? '保存修改' : '保存并接通'}
+                          {busy ? a.processing : form.id ? a.saveEdit : a.saveConnect}
                         </button>
                         <button
                           type="button"
@@ -1297,11 +1294,11 @@ export default function ApiPlatform({ onBack, onLogin, theme, onToggleTheme, tok
                           disabled={busy}
                           onClick={() => void onProbeGateway()}
                         >
-                          {probing ? '探测中…' : '探测网关'}
+                          {probing ? a.probingEllipsis : a.probeGateway}
                         </button>
                         {form.id && (
                           <button type="button" className="btn btn-ghost" disabled={busy} onClick={resetForm}>
-                            取消
+                            {a.cancel}
                           </button>
                         )}
                       </div>
@@ -1309,9 +1306,9 @@ export default function ApiPlatform({ onBack, onLogin, theme, onToggleTheme, tok
                   </form>
 
                   {models.length > 0 && (
-                    <div className="api-models" aria-label="可选模型">
+                    <div className="api-models" aria-label={a.modelsAria}>
                       <div className="api-models-head">
-                        <h4>点选填入模型</h4>
+                        <h4>{a.pickModel}</h4>
                         <span>{models.length}</span>
                       </div>
                       <div className="api-model-scroll">

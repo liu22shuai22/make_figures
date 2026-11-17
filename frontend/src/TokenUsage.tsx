@@ -6,6 +6,7 @@ import UsageVolume from './components/UsageVolume'
 import type { Theme } from './theme'
 import { buildSeries, clockTime, number, tokens, type Usage } from './usage'
 import { useLocale } from './LocaleContext'
+import type { AppCopy } from './appLocale'
 
 interface Props {
   onBack: () => void
@@ -22,14 +23,14 @@ function splitPercent(input: number, output: number) {
   return { inputPct, outputPct: 100 - inputPct }
 }
 
-function usageStory(usage: Usage, series: ReturnType<typeof buildSeries>) {
+function usageStory(usage: Usage, series: ReturnType<typeof buildSeries>, u: AppCopy['usage']) {
   const todayTotal = tokens(usage.today)
   const all = tokens(usage.total)
   if (all <= 0 || todayTotal <= 0) return null
   const share = Math.max(1, Math.round((todayTotal / all) * 100))
   const peak = Math.max(...series.map((day) => tokens(day)))
-  if (todayTotal >= peak) return `今天是近 ${WINDOW_DAYS} 天的高峰，约占累计的 ${share}%`
-  return `今天约占累计已确认用量的 ${share}%`
+  if (todayTotal >= peak) return u.peakStory(WINDOW_DAYS, share)
+  return u.shareStory(share)
 }
 
 export default function TokenUsage({ onBack, theme, onToggleTheme }: Props) {
@@ -72,7 +73,7 @@ export default function TokenUsage({ onBack, theme, onToggleTheme }: Props) {
   const seriesUnreported = series.some((day) => day.unreported_calls > 0)
   const todaySplit = usage ? splitPercent(usage.today.input_tokens, usage.today.output_tokens) : null
   const totalSplit = usage ? splitPercent(usage.total.input_tokens, usage.total.output_tokens) : null
-  const story = usage ? usageStory(usage, series) : null
+  const story = usage ? usageStory(usage, series, u) : null
   const todayShareOfTotal = usage && tokens(usage.total) > 0
     ? Math.min(100, Math.round((tokens(usage.today) / tokens(usage.total)) * 100))
     : 0
@@ -119,10 +120,10 @@ export default function TokenUsage({ onBack, theme, onToggleTheme }: Props) {
 
         {!usage && !loading && error && (
           <div className="usage-error" role="alert" data-testid="usage-error">
-            <strong>无法读取用量</strong>
-            <p>请确认本机 ERFlow 后端已启动，然后重试。已记录的数据不会丢失。</p>
+            <strong>{u.readFail}</strong>
+            <p>{u.readFailHint}</p>
             <button type="button" className="btn" onClick={() => setRefresh((value) => value + 1)}>
-              重试
+              {u.retry}
             </button>
           </div>
         )}
@@ -136,22 +137,20 @@ export default function TokenUsage({ onBack, theme, onToggleTheme }: Props) {
               </p>
             )}
 
-            <section className="usage-overview" aria-label="用量概览">
+            <section className="usage-overview" aria-label={u.overview}>
               <article className="usage-slate usage-today" data-testid="usage-today">
                 <div className="usage-slate-main">
-                  <p className="usage-label">今日已确认</p>
+                  <p className="usage-label">{u.todayConfirmed}</p>
                   <p className="usage-value">
                     <CountUp value={tokens(usage.today)} />
                   </p>
                   <p className="usage-split">
-                    <span><i className="usage-dot" aria-hidden="true" />输入 <b>{number(usage.today.input_tokens)}</b>{todaySplit && <em>{todaySplit.inputPct}%</em>}</span>
-                    <span><i className="usage-dot usage-dot-out" aria-hidden="true" />输出 <b>{number(usage.today.output_tokens)}</b>{todaySplit && <em>{todaySplit.outputPct}%</em>}</span>
+                    <span><i className="usage-dot" aria-hidden="true" />{u.input} <b>{number(usage.today.input_tokens)}</b>{todaySplit && <em>{todaySplit.inputPct}%</em>}</span>
+                    <span><i className="usage-dot usage-dot-out" aria-hidden="true" />{u.output} <b>{number(usage.today.output_tokens)}</b>{todaySplit && <em>{todaySplit.outputPct}%</em>}</span>
                   </p>
                   <p className="usage-meta">
-                    {usage.today.calls > 0 ? `${number(usage.today.calls)} 次请求` : '今天还没有请求'}
-                    {usage.today.unreported_calls > 0 && (
-                      <> · 其中 <b>{number(usage.today.unreported_calls)}</b> 次用量未返回</>
-                    )}
+                    {usage.today.calls > 0 ? u.calls(number(usage.today.calls)) : u.noCallsToday}
+                    {usage.today.unreported_calls > 0 && u.unreported(number(usage.today.unreported_calls))}
                   </p>
                 </div>
               </article>
@@ -166,28 +165,28 @@ export default function TokenUsage({ onBack, theme, onToggleTheme }: Props) {
                   />
                 ) : (
                   <div className="usage-stage-empty">
-                    <p>今天还没有已确认用量</p>
+                    <p>{u.noToday}</p>
                   </div>
                 )}
               </div>
 
               <article className="usage-slate usage-total" data-testid="usage-total">
                 <div className="usage-slate-main">
-                  <p className="usage-label">累计已确认</p>
+                  <p className="usage-label">{u.totalConfirmed}</p>
                   <p className="usage-value">
                     <CountUp value={tokens(usage.total)} />
                   </p>
                   <p className="usage-split">
-                    <span><i className="usage-dot" aria-hidden="true" />输入 <b>{number(usage.total.input_tokens)}</b>{totalSplit && <em>{totalSplit.inputPct}%</em>}</span>
-                    <span><i className="usage-dot usage-dot-out" aria-hidden="true" />输出 <b>{number(usage.total.output_tokens)}</b>{totalSplit && <em>{totalSplit.outputPct}%</em>}</span>
+                    <span><i className="usage-dot" aria-hidden="true" />{u.input} <b>{number(usage.total.input_tokens)}</b>{totalSplit && <em>{totalSplit.inputPct}%</em>}</span>
+                    <span><i className="usage-dot usage-dot-out" aria-hidden="true" />{u.output} <b>{number(usage.total.output_tokens)}</b>{totalSplit && <em>{totalSplit.outputPct}%</em>}</span>
                   </p>
                   <p className="usage-meta">
-                    {number(usage.total.calls)} 次请求
-                    {unreported > 0 && <> · 其中 <b>{number(unreported)}</b> 次用量未返回</>}
+                    {u.calls(number(usage.total.calls))}
+                    {unreported > 0 && u.unreported(number(unreported))}
                   </p>
                   {tokens(usage.total) > 0 && (
-                    <div className="usage-share-line" aria-label={`今日约占累计 ${todayShareOfTotal}%`}>
-                      <span>今日占累计</span>
+                    <div className="usage-share-line" aria-label={u.todayShareAria(todayShareOfTotal)}>
+                      <span>{u.todayShare}</span>
                       <span className="usage-share-track">
                         <i style={{ width: `${Math.max(todayShareOfTotal, todayShareOfTotal > 0 ? 2 : 0)}%` }} />
                       </span>
@@ -199,7 +198,9 @@ export default function TokenUsage({ onBack, theme, onToggleTheme }: Props) {
                   <ShareRing
                     inputPct={totalSplit.inputPct}
                     outputPct={totalSplit.outputPct}
-                    caption="累计构成"
+                    caption={u.totalComposition}
+                    inputLabel={u.input}
+                    ringAria={u.ringAria}
                     size="md"
                   />
                 )}
@@ -207,7 +208,7 @@ export default function TokenUsage({ onBack, theme, onToggleTheme }: Props) {
 
               {unreported > 0 && (
                 <p className="usage-footnote">
-                  合计只累加模型已返回的用量。未返回的请求记为「未确认」，不计入合计，也不估算费用。
+                  {u.note}
                 </p>
               )}
             </section>
@@ -215,15 +216,15 @@ export default function TokenUsage({ onBack, theme, onToggleTheme }: Props) {
             <section className="usage-section" aria-labelledby="usage-trend-title">
               <div className="usage-section-head">
                 <div>
-                  <h2 id="usage-trend-title">最近 {WINDOW_DAYS} 天</h2>
-                  <p className="usage-story">柱体带厚度：下层输入、上层输出。</p>
+                  <h2 id="usage-trend-title">{u.recent(WINDOW_DAYS)}</h2>
+                  <p className="usage-story">{u.story}</p>
                 </div>
                 {hasCalls && (
                   <div className="usage-legend">
-                    <span><i className="legend-swatch legend-in" aria-hidden="true" />输入</span>
-                    <span><i className="legend-swatch legend-out" aria-hidden="true" />输出</span>
+                    <span><i className="legend-swatch legend-in" aria-hidden="true" />{u.input}</span>
+                    <span><i className="legend-swatch legend-out" aria-hidden="true" />{u.output}</span>
                     {seriesUnreported && (
-                      <span><i className="legend-swatch legend-missing" aria-hidden="true" />用量未返回</span>
+                      <span><i className="legend-swatch legend-missing" aria-hidden="true" />{u.missing}</span>
                     )}
                   </div>
                 )}
@@ -233,8 +234,8 @@ export default function TokenUsage({ onBack, theme, onToggleTheme }: Props) {
                 <UsageChart series={series} />
               ) : (
                 <div className="usage-empty" data-testid="usage-empty">
-                  <strong>最近 {WINDOW_DAYS} 天还没有用量记录</strong>
-                  <p>在「工作台」用一段中文描述生成一次 E-R 图，当天的输入与输出 Token 会出现在这里。</p>
+                  <strong>{u.emptyRecent(WINDOW_DAYS)}</strong>
+                  <p>{u.emptyHint}</p>
                 </div>
               )}
             </section>
@@ -242,22 +243,22 @@ export default function TokenUsage({ onBack, theme, onToggleTheme }: Props) {
             {usage.daily.length > 0 && (
               <section className="usage-section" aria-labelledby="usage-detail-title">
                 <div className="usage-section-head">
-                  <h2 id="usage-detail-title">每日明细</h2>
+                  <h2 id="usage-detail-title">{u.daily}</h2>
                   <span className="usage-hint">
-                    <span className="usage-hint-wide">按日期倒序 · 仅含已确认用量</span>
-                    <span className="usage-hint-narrow">左右滑动看全部列</span>
+                    <span className="usage-hint-wide">{u.wideHint}</span>
+                    <span className="usage-hint-narrow">{u.narrowHint}</span>
                   </span>
                 </div>
                 <div className="usage-table-wrap">
                   <table className="usage-table">
                     <thead>
                       <tr>
-                        <th scope="col">日期</th>
-                        <th scope="col">输入</th>
-                        <th scope="col">输出</th>
-                        <th scope="col">合计</th>
-                        <th scope="col">请求</th>
-                        <th scope="col">用量未返回</th>
+                        <th scope="col">{u.date}</th>
+                        <th scope="col">{u.input}</th>
+                        <th scope="col">{u.output}</th>
+                        <th scope="col">{u.total}</th>
+                        <th scope="col">{u.requests}</th>
+                        <th scope="col">{u.missing}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -265,7 +266,7 @@ export default function TokenUsage({ onBack, theme, onToggleTheme }: Props) {
                         <tr key={day.day} className={day.day === usage.today.day ? 'is-today' : undefined}>
                           <th scope="row">
                             {day.day}
-                            {day.day === usage.today.day && <span className="usage-today-tag">今天</span>}
+                            {day.day === usage.today.day && <span className="usage-today-tag">{u.today}</span>}
                           </th>
                           <td>{number(day.input_tokens)}</td>
                           <td>{number(day.output_tokens)}</td>
@@ -293,11 +294,15 @@ function ShareRing({
   inputPct,
   outputPct,
   caption,
+  inputLabel,
+  ringAria,
   size = 'lg',
 }: {
   inputPct: number
   outputPct: number
   caption: string
+  inputLabel: string
+  ringAria: (caption: string, inputPct: number, outputPct: number) => string
   size?: 'lg' | 'md'
 }) {
   const dim = size === 'lg' ? 118 : 92
@@ -312,7 +317,7 @@ function ShareRing({
     <div
       className={'usage-ring usage-ring-' + size}
       role="img"
-      aria-label={`${caption}：输入 ${inputPct}%，输出 ${outputPct}%`}
+      aria-label={ringAria(caption, inputPct, outputPct)}
     >
       <svg width={dim} height={dim} viewBox={`0 0 ${dim} ${dim}`} aria-hidden="true">
         <circle
@@ -354,7 +359,7 @@ function ShareRing({
       </svg>
       <div className="usage-ring-core">
         <strong>{inputPct}<small>%</small></strong>
-        <span>输入</span>
+        <span>{inputLabel}</span>
       </div>
     </div>
   )

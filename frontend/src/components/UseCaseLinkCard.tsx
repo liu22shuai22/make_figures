@@ -1,4 +1,5 @@
 import type { ActorDraft, UseCaseDraft, UseCaseLinkDraft } from '../types'
+import { useLocale } from '../LocaleContext'
 
 interface Props {
   link: UseCaseLinkDraft
@@ -19,6 +20,9 @@ export default function UseCaseLinkCard({
   onChange,
   onRemove,
 }: Props) {
+  const { app } = useLocale()
+  const f = app.form
+
   return (
     <article
       id={`spec-${link.id}`}
@@ -26,13 +30,13 @@ export default function UseCaseLinkCard({
       className={`card${locatedId === link.id ? ' spec-located' : ''}`}
     >
       <div className="card-head">
-        <span className="card-index">关联 {index + 1}</span>
+        <span className="card-index">{f.linkN(index + 1)}</span>
         <button
           type="button"
           className="icon-btn icon-btn-danger"
           onClick={onRemove}
-          title="删除这条关联"
-          aria-label={`删除关联 ${index + 1}`}
+          title={f.delLink}
+          aria-label={f.delLinkAria(index + 1)}
         >
           ×
         </button>
@@ -40,33 +44,33 @@ export default function UseCaseLinkCard({
 
       <div className="field-row">
         <label className="field">
-          <span className="field-label">参与者</span>
+          <span className="field-label">{app.actors}</span>
           <select
             className="input"
             value={link.actorId}
             onChange={(event) => onChange({ ...link, actorId: event.target.value })}
             data-testid={`uclink-actor-${index}`}
           >
-            <option value="">选择参与者</option>
+            <option value="">{f.pickActor}</option>
             {actors.map((actor) => (
               <option key={actor.id} value={actor.id}>
-                {actor.name.trim() || '（未命名）'}
+                {actor.name.trim() || f.unnamed}
               </option>
             ))}
           </select>
         </label>
         <label className="field">
-          <span className="field-label">用例</span>
+          <span className="field-label">{app.useCases}</span>
           <select
             className="input"
             value={link.useCaseId}
             onChange={(event) => onChange({ ...link, useCaseId: event.target.value })}
             data-testid={`uclink-usecase-${index}`}
           >
-            <option value="">选择用例</option>
+            <option value="">{f.pickUseCase}</option>
             {useCases.map((item) => (
               <option key={item.id} value={item.id}>
-                {item.name.trim() || '（未命名）'}
+                {item.name.trim() || f.unnamed}
               </option>
             ))}
           </select>

@@ -1,4 +1,5 @@
 import { CANVAS_RATIOS, type CanvasRatio } from '../types'
+import { useLocale } from '../LocaleContext'
 
 interface Props {
   ratio: CanvasRatio
@@ -7,12 +8,15 @@ interface Props {
 }
 
 export default function CanvasRatioSelect({ ratio, disabled, onChange }: Props) {
+  const { app } = useLocale()
   return (
     <label className="canvas-ratio">
-      画布比例
+      {app.canvasRatio}
       <select value={ratio} disabled={disabled} onChange={(event) => onChange(event.target.value as CanvasRatio)}>
         {CANVAS_RATIOS.map((option) => (
-          <option key={option} value={option}>{option === 'auto' ? '自动' : option}</option>
+          <option key={option} value={option}>
+            {option === 'auto' ? app.canvasAuto : option}
+          </option>
         ))}
       </select>
     </label>

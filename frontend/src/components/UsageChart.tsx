@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { compact, niceMax, number, type UsageDay } from '../usage'
+import { useLocale } from '../LocaleContext'
 
 interface Props {
   series: UsageDay[]
@@ -12,6 +13,8 @@ const DEPTH_Y = 8
 
 /** 手写 SVG 立体堆叠柱：正面 + 顶面 + 侧面，下层输入、上层输出 */
 export default function UsageChart({ series, height = 288 }: Props) {
+  const { app } = useLocale()
+  const u = app.usage
   const host = useRef<HTMLDivElement>(null)
   const [width, setWidth] = useState(0)
 
@@ -52,7 +55,7 @@ export default function UsageChart({ series, height = 288 }: Props) {
           width={width}
           height={height}
           role="img"
-          aria-label={`最近 ${series.length} 天已确认 Token 趋势，输入与输出立体堆叠`}
+          aria-label={u.chartAria(series.length)}
         >
           {ticks.map((tick) => (
             <g key={tick.value}>
@@ -76,11 +79,11 @@ export default function UsageChart({ series, height = 288 }: Props) {
             const outputFace = Math.max(outputHeight, 0)
 
             const tooltip = [
-              `${day.day}${day.isToday ? '（今天）' : ''}`,
-              `输入 ${number(day.input_tokens)}`,
-              `输出 ${number(day.output_tokens)}`,
-              `${number(day.calls)} 次请求`,
-              day.unreported_calls > 0 ? `${number(day.unreported_calls)} 次用量未返回` : '',
+              `${day.day}${day.isToday ? u.todayParen : ''}`,
+              `${u.input} ${number(day.input_tokens)}`,
+              `${u.output} ${number(day.output_tokens)}`,
+              u.calls(number(day.calls)),
+              day.unreported_calls > 0 ? u.unreportedCalls(number(day.unreported_calls)) : '',
             ]
               .filter(Boolean)
               .join(' · ')
@@ -147,7 +150,7 @@ export default function UsageChart({ series, height = 288 }: Props) {
                     y={baseline + 18}
                     textAnchor="middle"
                   >
-                    {day.isToday ? '今天' : day.label}
+                    {day.isToday ? u.today : day.label}
                   </text>
                 )}
               </g>

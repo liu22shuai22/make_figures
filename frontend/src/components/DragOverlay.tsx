@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 import type { PointerEvent } from 'react'
 import type { DiagramLayout, EntityBox } from '../types'
+import { useLocale } from '../LocaleContext'
 
 interface DragOverlayProps {
   layout: DiagramLayout
@@ -8,6 +9,8 @@ interface DragOverlayProps {
 }
 
 export default function DragOverlay({ layout, onMove }: DragOverlayProps) {
+  const { app } = useLocale()
+  const p = app.preview
   const overlay = useRef<HTMLDivElement>(null)
   const pointer = useRef<{ id: number; box: EntityBox; clientX: number; clientY: number } | null>(null)
   const [ghost, setGhost] = useState<EntityBox | null>(null)
@@ -54,7 +57,7 @@ export default function DragOverlay({ layout, onMove }: DragOverlayProps) {
   }
 
   return (
-    <div className="drag-overlay" ref={overlay} aria-label="图元位置微调">
+    <div className="drag-overlay" ref={overlay} aria-label={p.dragAria}>
       {layout.entities.map((box) => {
         const moving = ghost?.entity === box.entity
         const displayed = moving ? ghost : box
@@ -69,7 +72,7 @@ export default function DragOverlay({ layout, onMove }: DragOverlayProps) {
               width: `${100 * displayed.width / layout.width}%`,
               height: `${100 * displayed.height / layout.height}%`,
             }}
-            aria-label={`移动${box.entity}`}
+            aria-label={p.moveEntity(box.entity)}
             onPointerDown={(event) => begin(event, box)}
             onPointerMove={(event) => {
               const next = destination(event)

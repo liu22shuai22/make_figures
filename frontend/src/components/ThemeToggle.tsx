@@ -1,4 +1,5 @@
 import type { Theme } from '../theme'
+import { useLocale } from '../LocaleContext'
 
 interface ThemeToggleProps {
   theme: Theme
@@ -7,8 +8,9 @@ interface ThemeToggleProps {
 
 /** 顶栏主题切换：太阳/月亮图标，状态通过 aria-pressed 暴露 */
 export default function ThemeToggle({ theme, onToggle }: ThemeToggleProps) {
+  const { app } = useLocale()
   const dark = theme === 'dark'
-  const label = dark ? '切换到浅色主题' : '切换到深色主题'
+  const label = dark ? app.themeToLight : app.themeToDark
 
   return (
     <button

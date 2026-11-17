@@ -538,9 +538,11 @@ export default function App({ command, onHome, onUsage, onLogin, username, token
         setNotice({
           title: copy.current.genUcDone(rendered, parsed.spec.actors.length, parsed.spec.useCases.length),
           items: [
-            rendered ? '可直接输入下一份场景描述。' : needsRestore
-              ? '这份新规格尚未出图。可载入表单编辑，右侧保留上次成功的图。'
-              : '生成的规格已载入表单，编辑后可点「重新排版」。',
+            rendered
+              ? copy.current.nextScene
+              : needsRestore
+                ? copy.current.newSpecNotRendered
+                : copy.current.specInForm,
             ...reviewNotes.map((note) => copy.current.pendingConfirm(note)),
             ...parsed.notices,
           ],
@@ -642,7 +644,7 @@ export default function App({ command, onHome, onUsage, onLogin, username, token
       if (rendered && descriptionVersion.current === submittedVersion) setDescribe('')
       setNotice({
         title: copy.current.genErDone(rendered, parsed.spec.entities.length, parsed.spec.relations.length),
-        items: [rendered ? '可直接输入下一份系统描述。' : '生成的规格已保留，修正后可点「重新排版」。', ...parsed.notices],
+        items: [rendered ? copy.current.nextSystem : copy.current.specKept, ...parsed.notices],
         action: rendered
           ? {
               label: copy.current.viewResult,
@@ -777,11 +779,11 @@ export default function App({ command, onHome, onUsage, onLogin, username, token
     ).length
     if (linkCount > 0 || depCount > 0) {
       const parts = [
-        linkCount > 0 ? `${linkCount} 条关联` : '',
-        depCount > 0 ? `${depCount} 条依赖` : '',
+        linkCount > 0 ? copy.current.nLinks(linkCount) : '',
+        depCount > 0 ? copy.current.nDeps(depCount) : '',
       ].filter(Boolean)
       const confirmed = window.confirm(
-        `删除用例「${target.name || '未命名'}」？将一并清除 ${parts.join('、')}。`,
+        copy.current.confirmDelUseCase(target.name || copy.current.unnamed, parts.join(' / ')),
       )
       if (!confirmed) return
     }
@@ -844,10 +846,8 @@ export default function App({ command, onHome, onUsage, onLogin, username, token
   const removeEntity = (target: EntityDraft) => {
     const affected = spec.relations.filter((relation) => relation.ends.some((end) => end.entityId === target.id))
     if (affected.length) {
-      const name = target.name.trim() || '未命名实体'
-      const confirmed = window.confirm(
-        `删除实体「${name}」？有 ${affected.length} 条联系引用了它，删除后这些端点需要重新选择实体。`,
-      )
+      const name = target.name.trim() || copy.current.unnamedEntity
+      const confirmed = window.confirm(copy.current.confirmDelEntity(name, affected.length))
       if (!confirmed) return
     }
     setSpec((current) => ({
@@ -873,10 +873,8 @@ export default function App({ command, onHome, onUsage, onLogin, username, token
   const loadErSample = async () => {
     if (generatingRef.current || submitting.current) return
     if (!emptyErDraft) {
-      const summary = `${spec.entities.length} 个实体、${spec.relations.length} 条联系`
-      const confirmed = window.confirm(
-        `用选课样例替换当前草稿？当前草稿有 ${summary}，替换后只能靠「导入 JSON」或重新编辑找回。`,
-      )
+      const summary = copy.current.summaryEr(spec.entities.length, spec.relations.length)
+      const confirmed = window.confirm(copy.current.confirmSampleEr(summary))
       if (!confirmed) {
         setNotice({ title: copy.current.cancelledKeep, items: [] })
         return
@@ -897,7 +895,7 @@ export default function App({ command, onHome, onUsage, onLogin, username, token
         : copy.current.sampleLoadedEr(false, sample.spec.entities.length, sample.spec.relations.length),
       items: rendered
         ? sample.notices
-        : [token ? '规格已就绪，点预览区「重新排版」即可出图。' : '规格已写入，登录后即可出图。', ...sample.notices],
+        : [token ? copy.current.specReadyRender : copy.current.specReadyLogin, ...sample.notices],
       action: token
         ? {
             label: copy.current.viewPreview,
@@ -910,10 +908,8 @@ export default function App({ command, onHome, onUsage, onLogin, username, token
   const loadUseCaseSample = async () => {
     if (generatingRef.current || submitting.current) return
     if (!emptyUcDraft) {
-      const summary = `${ucSpec.actors.length} 个参与者、${ucSpec.useCases.length} 个用例`
-      const confirmed = window.confirm(
-        `用图书借阅用例样例替换当前草稿？当前草稿有 ${summary}，替换后只能靠「导入 JSON」或重新编辑找回。`,
-      )
+      const summary = copy.current.summaryUc(ucSpec.actors.length, ucSpec.useCases.length)
+      const confirmed = window.confirm(copy.current.confirmSampleUc(summary))
       if (!confirmed) {
         setNotice({ title: copy.current.cancelledKeep, items: [] })
         return
@@ -932,11 +928,16 @@ export default function App({ command, onHome, onUsage, onLogin, username, token
     const depCount = sample.spec.dependencies.length
     setNotice({
       title: rendered
-        ? `已载入用例样例并出图：${sample.spec.actors.length} 个参与者、${sample.spec.useCases.length} 个用例`
-        : `已载入用例样例：${sample.spec.actors.length} 个参与者、${sample.spec.useCases.length} 个用例、${sample.spec.links.length} 条关联${depCount ? `、${depCount} 条依赖` : ''}`,
+        ? copy.current.sampleLoadedUc(true, sample.spec.actors.length, sample.spec.useCases.length)
+        : copy.current.sampleLoadedUcDetail(
+            sample.spec.actors.length,
+            sample.spec.useCases.length,
+            sample.spec.links.length,
+            depCount,
+          ),
       items: rendered
         ? sample.notices
-        : [token ? '规格已就绪，点「重新排版」即可出图。' : '规格已写入，登录后即可出图。', ...sample.notices],
+        : [token ? copy.current.specReadyRelayout : copy.current.specReadyLogin, ...sample.notices],
       action: token
         ? {
             label: copy.current.viewPreview,
@@ -979,7 +980,7 @@ export default function App({ command, onHome, onUsage, onLogin, username, token
     try {
       text = await file.text()
     } catch {
-      setError({ title: '导入没有完成', detail: '读取文件失败，请重新选择文件。' })
+      setError({ title: copy.current.importFailed, detail: copy.current.importReadFail })
       return
     }
     let raw: unknown
@@ -987,8 +988,8 @@ export default function App({ command, onHome, onUsage, onLogin, username, token
       raw = JSON.parse(text)
     } catch (caught) {
       setError({
-        title: '导入没有完成',
-        detail: `${file.name} 不是合法 JSON（${(caught as Error).message}）。`,
+        title: copy.current.importFailed,
+        detail: copy.current.importBadJson(file.name, (caught as Error).message),
         keptPreview: true,
       })
       return
@@ -1005,8 +1006,8 @@ export default function App({ command, onHome, onUsage, onLogin, username, token
       const parsed = parseUseCaseSpec(raw)
       if (!parsed.ok) {
         setError({
-          title: '导入没有完成',
-          detail: parsed.error || '用例规格无法使用。',
+          title: copy.current.importFailed,
+          detail: parsed.error || copy.current.importUcBad,
           keptPreview: true,
         })
         return
@@ -1021,13 +1022,16 @@ export default function App({ command, onHome, onUsage, onLogin, username, token
       lastGeneratedUcSpec.current = parsed.spec
       const rendered = token ? await renderUseCaseDraft(parsed.spec) : false
       setNotice({
-        title: rendered
-          ? `已导入 ${file.name} 并出图：${parsed.spec.actors.length} 个参与者、${parsed.spec.useCases.length} 个用例`
-          : `已导入 ${file.name}：${parsed.spec.actors.length} 个参与者、${parsed.spec.useCases.length} 个用例`,
+        title: copy.current.importedUc(
+          file.name,
+          rendered,
+          parsed.spec.actors.length,
+          parsed.spec.useCases.length,
+        ),
         items: rendered
           ? parsed.notices
           : [
-              token ? '规格已就绪，点「重新排版」即可出图。' : '规格已写入，登录后即可出图。',
+              token ? copy.current.specReadyRelayout : copy.current.specReadyLogin,
               ...parsed.notices,
             ],
         action: token
@@ -1043,8 +1047,8 @@ export default function App({ command, onHome, onUsage, onLogin, username, token
     const parsed = parseSpec(raw)
     if (!parsed.ok) {
       setError({
-        title: '导入没有完成',
-        detail: parsed.error.replace(/\s*当前编辑内容和预览都已保留。?\s*$/, '').trim() || '规格无法使用。',
+        title: copy.current.importFailed,
+        detail: parsed.error.replace(/\s*当前编辑内容和预览都已保留。?\s*$/, '').trim() || copy.current.importErBad,
         keptPreview: true,
       })
       return
@@ -1071,13 +1075,16 @@ export default function App({ command, onHome, onUsage, onLogin, username, token
         : undefined
     const rendered = token ? await renderDraft(parsed.spec, namedPositions) : false
     setNotice({
-      title: rendered
-        ? `已导入 ${file.name} 并出图：${parsed.spec.entities.length} 个实体、${parsed.spec.relations.length} 条联系`
-        : `已导入 ${file.name}：${parsed.spec.entities.length} 个实体、${parsed.spec.relations.length} 条联系`,
+      title: copy.current.imported(
+        file.name,
+        rendered,
+        parsed.spec.entities.length,
+        parsed.spec.relations.length,
+      ),
       items: rendered
         ? parsed.notices
         : [
-            token ? '规格已就绪，点预览区「重新排版」即可出图。' : '规格已写入，登录后即可出图。',
+            token ? copy.current.specReadyRender : copy.current.specReadyLogin,
             ...parsed.notices,
           ],
       action: token
@@ -1111,10 +1118,8 @@ export default function App({ command, onHome, onUsage, onLogin, username, token
     const name = `${safeFileName(spec.title.trim() || 'er-spec')}.json`
     downloadText(name, `${JSON.stringify(payload, null, 2)}\n`)
     setNotice({
-      title: `已导出 ${name}`,
-      items: [savedPositions
-        ? '已保存当前规格和实体位置，再次导入可恢复布局。'
-        : '已保存当前规格，再次导入后可自动排版。'],
+      title: copy.current.exported(name),
+      items: [savedPositions ? copy.current.exportedErPos : copy.current.exportedEr],
     })
   }
 

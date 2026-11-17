@@ -1,6 +1,7 @@
 import { CARDINALITIES } from '../types'
 import type { AttrDraft, Cardinality, EndDraft, EntityDraft, RelationDraft } from '../types'
 import { newAttr } from '../spec'
+import { useLocale } from '../LocaleContext'
 
 interface RelationCardProps {
   relation: RelationDraft
@@ -12,7 +13,12 @@ interface RelationCardProps {
 }
 
 export default function RelationCard({ relation, index, locatedId, entities, onChange, onRemove }: RelationCardProps) {
-  const isSelf = relation.ends.length === 2 && relation.ends[0].entityId !== '' && relation.ends[0].entityId === relation.ends[1].entityId
+  const { app } = useLocale()
+  const f = app.form
+  const isSelf =
+    relation.ends.length === 2 &&
+    relation.ends[0].entityId !== '' &&
+    relation.ends[0].entityId === relation.ends[1].entityId
   const isTernary = relation.ends.length === 3
 
   const patchEnd = (endIndex: number, patch: Partial<EndDraft>) => {
@@ -47,40 +53,40 @@ export default function RelationCard({ relation, index, locatedId, entities, onC
   return (
     <article id={`spec-${relation.id}`} tabIndex={-1} className={`card${locatedId === relation.id ? ' spec-located' : ''}`}>
       <div className="card-head">
-        <span className="card-index">联系 {index + 1}</span>
-        {isSelf && <span className="badge badge-quiet">自联系</span>}
-        {isTernary && <span className="badge badge-quiet">三元联系</span>}
+        <span className="card-index">{f.relationN(index + 1)}</span>
+        {isSelf && <span className="badge badge-quiet">{f.selfRel}</span>}
+        {isTernary && <span className="badge badge-quiet">{f.ternary}</span>}
         <button
           type="button"
           className="icon-btn icon-btn-danger"
           onClick={onRemove}
-          title="删除这条联系"
-          aria-label={`删除联系 ${relation.name || index + 1}`}
+          title={f.delRelation}
+          aria-label={f.delRelationAria(relation.name || index + 1)}
         >
           ×
         </button>
       </div>
 
       <label className="field">
-        <span className="field-label">联系名</span>
+        <span className="field-label">{f.relationName}</span>
         <input
           className="input"
           value={relation.name}
-          placeholder="如：选修"
+          placeholder={f.relationPh}
           onChange={(event) => onChange({ ...relation, name: event.target.value })}
           data-testid={`relation-name-${index}`}
         />
       </label>
 
       <div className="subhead">
-        <span className="subhead-title">端点与基数</span>
+        <span className="subhead-title">{f.endsTitle}</span>
         {isTernary ? (
           <button type="button" className="link-btn" onClick={removeThirdEnd}>
-            移除第 3 端点
+            {f.removeThird}
           </button>
         ) : (
           <button type="button" className="link-btn" onClick={addThirdEnd} disabled={entities.length < 3}>
-            + 添加第三端点
+            {f.addThird}
           </button>
         )}
       </div>
@@ -93,18 +99,18 @@ export default function RelationCard({ relation, index, locatedId, entities, onC
               className="input"
               value={end.entityId}
               onChange={(event) => patchEnd(endIndex, { entityId: event.target.value, missingName: undefined })}
-              aria-label={`联系 ${relation.name || index + 1} 第 ${endIndex + 1} 个端点实体`}
+              aria-label={f.endEntityAria(relation.name || index + 1, endIndex + 1)}
               data-testid={`relation-end-entity-${index}-${endIndex}`}
             >
-              <option value="">请选择实体</option>
+              <option value="">{f.pickEntity}</option>
               {end.missingName && (
                 <option value="" disabled>
-                  原文件中的「{end.missingName}」不在实体列表
+                  {f.missingEntity(end.missingName)}
                 </option>
               )}
               {entities.map((entity) => (
                 <option key={entity.id} value={entity.id}>
-                  {entity.name.trim() || '（未命名实体）'}
+                  {entity.name.trim() || f.unnamedEntity}
                 </option>
               ))}
             </select>
@@ -112,7 +118,7 @@ export default function RelationCard({ relation, index, locatedId, entities, onC
               className="input card-select"
               value={end.card}
               onChange={(event) => patchEnd(endIndex, { card: event.target.value as Cardinality })}
-              aria-label={`联系 ${relation.name || index + 1} 第 ${endIndex + 1} 个端点的基数`}
+              aria-label={f.endCardAria(relation.name || index + 1, endIndex + 1)}
               data-testid={`relation-end-card-${index}-${endIndex}`}
             >
               {CARDINALITIES.map((card) => (
@@ -126,14 +132,14 @@ export default function RelationCard({ relation, index, locatedId, entities, onC
       </div>
 
       <div className="subhead">
-        <span className="subhead-title">联系属性 · {relation.attrs.length}</span>
+        <span className="subhead-title">{f.relAttrs(relation.attrs.length)}</span>
         <button type="button" className="link-btn" onClick={addAttr} data-testid={`relation-add-attr-${index}`}>
-          + 添加联系属性
+          {f.addRelAttr}
         </button>
       </div>
 
       {relation.attrs.length === 0 ? (
-        <p className="hint">没有联系属性（如「成绩」）时留空即可。</p>
+        <p className="hint">{f.relAttrHint}</p>
       ) : (
         <ul className="attr-list">
           {relation.attrs.map((attr, attrIndex) => (
@@ -142,7 +148,7 @@ export default function RelationCard({ relation, index, locatedId, entities, onC
               <input
                 className="input input-flat"
                 value={attr.name}
-                placeholder="联系属性名"
+                placeholder={f.relAttrName}
                 onChange={(event) => patchAttr(attr.id, { name: event.target.value })}
                 data-testid={`relation-attr-${index}-${attrIndex}`}
               />
@@ -150,8 +156,8 @@ export default function RelationCard({ relation, index, locatedId, entities, onC
                 type="button"
                 className="icon-btn"
                 onClick={() => removeAttr(attr.id)}
-                title="删除这个联系属性"
-                aria-label={`删除联系属性 ${attr.name || attrIndex + 1}`}
+                title={f.delRelAttr}
+                aria-label={f.delRelAttrAria(attr.name || attrIndex + 1)}
               >
                 ×
               </button>

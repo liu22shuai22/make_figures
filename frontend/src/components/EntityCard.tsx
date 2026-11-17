@@ -1,5 +1,6 @@
 import type { AttrDraft, EntityDraft } from '../types'
 import { newAttr } from '../spec'
+import { useLocale } from '../LocaleContext'
 
 interface EntityCardProps {
   entity: EntityDraft
@@ -12,6 +13,9 @@ interface EntityCardProps {
 }
 
 export default function EntityCard({ entity, index, locatedId, relationCount, onChange, onRemove }: EntityCardProps) {
+  const { app } = useLocale()
+  const f = app.form
+
   const patchAttr = (attrId: string, patch: Partial<AttrDraft>) => {
     onChange({
       ...entity,
@@ -38,44 +42,44 @@ export default function EntityCard({ entity, index, locatedId, relationCount, on
   return (
     <article id={`spec-${entity.id}`} tabIndex={-1} className={`card${locatedId === entity.id ? ' spec-located' : ''}`}>
       <div className="card-head">
-        <span className="card-index">实体 {index + 1}</span>
-        {relationCount > 0 && <span className="badge badge-quiet">被 {relationCount} 条联系引用</span>}
+        <span className="card-index">{f.entityN(index + 1)}</span>
+        {relationCount > 0 && <span className="badge badge-quiet">{f.entityRefs(relationCount)}</span>}
         <button
           type="button"
           className="icon-btn icon-btn-danger"
           onClick={onRemove}
-          title="删除这个实体"
-          aria-label={`删除实体 ${entity.name || index + 1}`}
+          title={f.delEntity}
+          aria-label={f.delEntityAria(entity.name || index + 1)}
         >
           ×
         </button>
       </div>
 
       <label className="field">
-        <span className="field-label">实体名</span>
+        <span className="field-label">{f.entityName}</span>
         <input
           className="input"
           value={entity.name}
-          placeholder="如：学生"
+          placeholder={f.entityPh}
           onChange={(event) => onChange({ ...entity, name: event.target.value })}
           data-testid={`entity-name-${index}`}
         />
       </label>
 
       <div className="subhead">
-        <span className="subhead-title">属性 · {entity.attrs.length}</span>
+        <span className="subhead-title">{f.attrsCount(entity.attrs.length)}</span>
         <button
           type="button"
           className="link-btn"
           onClick={() => onChange({ ...entity, attrs: [...entity.attrs, newAttr('')] })}
           data-testid={`entity-add-attr-${index}`}
         >
-          + 添加属性
+          {f.addAttr}
         </button>
       </div>
 
       {entity.attrs.length === 0 ? (
-        <p className="hint">勾选左侧可标主键；没有属性时会自动补一个。</p>
+        <p className="hint">{f.attrHint}</p>
       ) : (
         <ul className="attr-list">
           {entity.attrs.map((attr, attrIndex) => (
@@ -85,13 +89,13 @@ export default function EntityCard({ entity, index, locatedId, relationCount, on
                 className="checkbox"
                 checked={attr.pk}
                 onChange={(event) => patchAttr(attr.id, { pk: event.target.checked })}
-                title="标记为主键（图中属性名加下划线）"
-                aria-label={`属性 ${attrIndex + 1} 是否为主键`}
+                title={f.markPk}
+                aria-label={f.attrPkAria(attrIndex + 1)}
               />
               <input
                 className="input input-flat"
                 value={attr.name}
-                placeholder="属性名"
+                placeholder={f.attrName}
                 onChange={(event) => typeAttrName(attr.id, event.target.value)}
                 data-testid={`entity-attr-${index}-${attrIndex}`}
               />
@@ -99,8 +103,8 @@ export default function EntityCard({ entity, index, locatedId, relationCount, on
                 type="button"
                 className="icon-btn"
                 onClick={() => removeAttr(attr.id)}
-                title="删除这个属性"
-                aria-label={`删除属性 ${attr.name || attrIndex + 1}`}
+                title={f.delAttr}
+                aria-label={f.delAttrAria(attr.name || attrIndex + 1)}
               >
                 ×
               </button>
