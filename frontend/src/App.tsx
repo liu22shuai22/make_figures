@@ -26,6 +26,7 @@ import {
   newEntity,
   newRelation,
   parseSpec,
+  positionsByName,
   signatureOf,
   toJsonSpec,
   uniqueName,
@@ -34,6 +35,7 @@ import {
 import {
   EMPTY_USECASE_SPEC,
   USECASE_LIMITS,
+  detectDiagramKind,
   newActor,
   newUseCase,
   newUseCaseDep,
@@ -234,35 +236,25 @@ export default function App({ command, onHome, onUsage, onLogin, username, token
   const erIssues = useMemo(() => (emptyErDraft ? [] : validateSpec(spec)), [spec, emptyErDraft])
   const ucIssues = useMemo(() => (emptyUcDraft ? [] : validateUseCaseSpec(ucSpec)), [ucSpec, emptyUcDraft])
   const issues = isUseCase ? ucIssues : erIssues
-  useLayoutEffect(() => {
-    if (isUseCase) {
-      onAssistantDraft({ spec: EMPTY_SPEC, issues: [], onLocate: locateSpec })
-      return
-    }
-    onAssistantDraft({ spec, issues: erIssues, onLocate: locateSpec })
-  }, [isUseCase, spec, erIssues, locateSpec, onAssistantDraft])
   const errors = useMemo(() => issues.filter((issue) => issue.level === 'error'), [issues])
   const warnings = useMemo(() => issues.filter((issue) => issue.level === 'warn'), [issues])
   const blocked = isUseCase
     ? !ucSpec.actors.length || !ucSpec.useCases.length || errors.length > 0
     : !spec.entities.length || errors.length > 0
 
-  const savedPositions = useMemo<DiagramPositions | undefined>(() => {
-    const entities = spec.entities
-    if (!positionsById || Object.keys(positionsById).length !== entities.length
-        || entities.some(({ id }) => !positionsById[id])) return undefined
-    return Object.fromEntries(entities.map(({ name, id }) => [name.trim(), positionsById[id]]))
-  }, [spec.entities, positionsById])
+  const savedPositions = useMemo(
+    () => positionsByName(spec.entities, positionsById),
+    [spec.entities, positionsById],
+  )
   const ucNodeIds = useMemo(
     () => [...ucSpec.actors.map((actor) => ({ id: actor.id, name: actor.name })),
       ...ucSpec.useCases.map((item) => ({ id: item.id, name: item.name }))],
     [ucSpec.actors, ucSpec.useCases],
   )
-  const savedUcPositions = useMemo<DiagramPositions | undefined>(() => {
-    if (!ucPositionsById || Object.keys(ucPositionsById).length !== ucNodeIds.length
-        || ucNodeIds.some(({ id }) => !ucPositionsById[id])) return undefined
-    return Object.fromEntries(ucNodeIds.map(({ name, id }) => [name.trim(), ucPositionsById[id]]))
-  }, [ucNodeIds, ucPositionsById])
+  const savedUcPositions = useMemo(
+    () => positionsByName(ucNodeIds, ucPositionsById),
+    [ucNodeIds, ucPositionsById],
+  )
   const draftSignature = useMemo(() => signatureOf(spec, savedPositions), [spec, savedPositions])
   const ucDraftSignature = useMemo(() => signatureOfUseCase(ucSpec, savedUcPositions), [ucSpec, savedUcPositions])
   const activeResult = isUseCase ? ucResult : result
@@ -332,6 +324,21 @@ export default function App({ command, onHome, onUsage, onLogin, username, token
       setLoading(false)
     }
   }, [format, positionsById, ratio, token])
+
+  const applyCardinality = useCallback(async (source: SpecDraft, draft: SpecDraft) => {
+    if (currentSpec.current !== source || generatingRef.current || submitting.current) return false
+    return renderDraft(draft, savedPositions, () => {
+      if (currentSpec.current !== source) return false
+      setSpec(draft)
+      return true
+    })
+  }, [renderDraft, savedPositions])
+
+  useLayoutEffect(() => {
+    onAssistantDraft(isUseCase
+      ? { spec: EMPTY_SPEC, issues: [], onLocate: locateSpec }
+      : { spec, issues: erIssues, onLocate: locateSpec, applyCardinality })
+  }, [isUseCase, spec, erIssues, locateSpec, onAssistantDraft, applyCardinality])
 
   const handleRender = (positions?: DiagramPositions) => {
     if (!generatingRef.current) return renderDraft(spec, positions)
@@ -994,15 +1001,8 @@ export default function App({ command, onHome, onUsage, onLogin, username, token
       })
       return
     }
-    const looksUseCase =
-      isUseCase ||
-      (typeof raw === 'object' &&
-        raw !== null &&
-        ((raw as { kind?: unknown }).kind === 'usecase' ||
-          Array.isArray((raw as { useCases?: unknown }).useCases) ||
-          Array.isArray((raw as { use_cases?: unknown }).use_cases)))
-
-    if (looksUseCase) {
+    const importedKind = detectDiagramKind(raw) ?? diagramKind
+    if (importedKind === 'usecase') {
       const parsed = parseUseCaseSpec(raw)
       if (!parsed.ok) {
         setError({
@@ -1015,12 +1015,16 @@ export default function App({ command, onHome, onUsage, onLogin, username, token
       setDiagramKind('usecase')
       setUcSpec(parsed.spec)
       setUcReview(null)
-      setUcPositionsById(undefined)
+      setUcPositionsById(parsed.positionsById)
       setUcManualOpen(true)
       setUcResult(null)
       setError(null)
+      setTab('overview')
       lastGeneratedUcSpec.current = parsed.spec
-      const rendered = token ? await renderUseCaseDraft(parsed.spec) : false
+      const nodes = [...parsed.spec.actors, ...parsed.spec.useCases]
+      const positions = positionsByName(nodes, parsed.positionsById)
+      const canRender = !validateUseCaseSpec(parsed.spec).some((issue) => issue.level === 'error')
+      const rendered = token && canRender ? await renderUseCaseDraft(parsed.spec, positions) : false
       setNotice({
         title: copy.current.importedUc(
           file.name,
@@ -1031,15 +1035,16 @@ export default function App({ command, onHome, onUsage, onLogin, username, token
         items: rendered
           ? parsed.notices
           : [
-              token ? copy.current.specReadyRelayout : copy.current.specReadyLogin,
+              !canRender ? copy.current.fixLeftFirst :
+                token ? copy.current.specReadyRelayout : copy.current.specReadyLogin,
               ...parsed.notices,
             ],
-        action: token
+        action: rendered
           ? {
               label: copy.current.viewPreview,
               run: () => document.getElementById('preview-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' }),
             }
-          : { label: copy.current.goLogin, run: onLogin },
+          : !token && canRender ? { label: copy.current.goLogin, run: onLogin } : undefined,
       })
       return
     }
@@ -1060,19 +1065,7 @@ export default function App({ command, onHome, onUsage, onLogin, username, token
     setError(null)
     setTab('overview')
     lastGeneratedSpec.current = parsed.spec
-    // positionsById 按实体 id；renderDraft 要按实体名；坐标不全则自动排版
-    const namedEntries = parsed.positionsById
-      ? parsed.spec.entities
-          .map(({ id, name }) => {
-            const point = parsed.positionsById?.[id]
-            return point ? ([name.trim(), point as [number, number]] as const) : null
-          })
-          .filter((entry): entry is readonly [string, [number, number]] => !!entry)
-      : []
-    const namedPositions =
-      namedEntries.length > 0 && namedEntries.length === parsed.spec.entities.length
-        ? Object.fromEntries(namedEntries)
-        : undefined
+    const namedPositions = positionsByName(parsed.spec.entities, parsed.positionsById)
     const rendered = token ? await renderDraft(parsed.spec, namedPositions) : false
     setNotice({
       title: copy.current.imported(
@@ -1105,12 +1098,12 @@ export default function App({ command, onHome, onUsage, onLogin, username, token
 
   const handleExport = () => {
     if (isUseCase) {
-      const payload = toUseCaseJson(ucSpec)
+      const payload = toUseCaseJson(ucSpec, savedUcPositions)
       const name = `${safeFileName(ucSpec.title.trim() || ucSpec.system.trim() || 'usecase-spec')}.json`
       downloadText(name, `${JSON.stringify(payload, null, 2)}\n`)
       setNotice({
         title: copy.current.exported(name),
-        items: [copy.current.exportedUc],
+        items: [savedUcPositions ? copy.current.exportedWithLayout : copy.current.exportedUc],
       })
       return
     }

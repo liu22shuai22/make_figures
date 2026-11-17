@@ -229,9 +229,9 @@ const DEMO_FIGURES = [
     key: 'usecase' as const,
     kind: 'usecase' as const,
     src: '/sample-usecase.png',
-    width: 720,
-    height: 379,
-    alt: '图书借阅用例图：读者与管理员关联借书、还书、查询馆藏；含验证身份 include 与续借 extend',
+    width: 1005,
+    height: 662,
+    alt: '图书借阅用例图：读者与管理员关联借书、还书、查询馆藏；借还含验证身份 include',
   },
 ]
 

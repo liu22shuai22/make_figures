@@ -1,8 +1,6 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import BrandMark from './components/BrandMark'
 import ProviderIcon from './components/ProviderIcon'
-import ThemeToggle from './components/ThemeToggle'
-import type { Theme } from './theme'
 import { useLocale } from './LocaleContext'
 import { downloadText, safeFileName } from './download'
 import {
@@ -23,8 +21,6 @@ import {
 interface Props {
   onBack: () => void
   onLogin: () => void
-  theme: Theme
-  onToggleTheme: () => void
   token: string | null
 }
 
@@ -167,7 +163,7 @@ function providerTone(id?: string | null) {
   }
 }
 
-export default function ApiPlatform({ onBack, onLogin, theme, onToggleTheme, token }: Props) {
+export default function ApiPlatform({ onBack, onLogin, token }: Props) {
   const { app } = useLocale()
   const a = app.api
   const scopeLabel: Record<RailScope, string> = {
@@ -709,7 +705,6 @@ export default function ApiPlatform({ onBack, onLogin, theme, onToggleTheme, tok
           <button type="button" className="btn" onClick={onBack}>
             {app.backWorkbench}
           </button>
-          <ThemeToggle theme={theme} onToggle={onToggleTheme} />
         </div>
       </header>
 

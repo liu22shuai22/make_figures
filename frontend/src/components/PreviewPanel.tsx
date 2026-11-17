@@ -89,7 +89,8 @@ export default function PreviewPanel({
   const layout: DiagramLayout | undefined = result?.layout
   const layoutEntities = layout?.entities ?? []
   const canExpand =
-    activeKey === 'overview' && !!layout && (layoutEntities.length > 15 || layout.width > 12 || layout.height > 9)
+    activeKey === 'overview' && !!layout &&
+    (isUseCase || layoutEntities.length > 15 || layout.width > 12 || layout.height > 9)
   const zoomed = expanded && canExpand
   const quality = layout?.quality
   const useCaseQuality = isUseCase ? layout?.useCaseQuality : undefined
@@ -215,7 +216,7 @@ export default function PreviewPanel({
               <p className="hint">{p.brokenHint}</p>
             </div>
           ) : (
-            <div className="preview-figure" style={zoomed && layout ? { width: layout.width * 96 } : undefined}>
+            <div className="preview-figure" style={zoomed && layout ? { width: layout.width * (isUseCase ? 140 : 96) } : undefined}>
               <img
                 key={active.url}
                 src={active.url}

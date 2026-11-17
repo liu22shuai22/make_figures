@@ -114,10 +114,12 @@ type ParseOutcome =
   | { ok: true; spec: SpecDraft; notices: string[]; positionsById?: DiagramPositions }
   | { ok: false; error: string }
 
-function parsePositions(input: unknown, entities: EntityDraft[]): DiagramPositions | undefined {
-  if (!isObject(input) || Object.keys(input).length !== entities.length) return undefined
+type NamedNode = { id: string; name: string }
+
+export function parsePositions(input: unknown, nodes: readonly NamedNode[]): DiagramPositions | undefined {
+  if (!isObject(input) || Object.keys(input).length !== nodes.length) return undefined
   const positions: DiagramPositions = {}
-  for (const { id, name } of entities) {
+  for (const { id, name } of nodes) {
     if (!Object.prototype.hasOwnProperty.call(input, name)) return undefined
     const point = input[name]
     if (!Array.isArray(point) || point.length !== 2 || !point.every((coordinate) =>
@@ -126,6 +128,15 @@ function parsePositions(input: unknown, entities: EntityDraft[]): DiagramPositio
     positions[id] = [point[0], point[1]]
   }
   return positions
+}
+
+export function positionsByName(
+  nodes: readonly NamedNode[],
+  positionsById?: DiagramPositions,
+): DiagramPositions | undefined {
+  if (!positionsById || !nodes.length || Object.keys(positionsById).length !== nodes.length
+      || nodes.some(({ id }) => !positionsById[id])) return undefined
+  return Object.fromEntries(nodes.map(({ id, name }) => [name.trim(), positionsById[id]]))
 }
 
 /**

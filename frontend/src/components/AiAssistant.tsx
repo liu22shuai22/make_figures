@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useId, useRef, useState } from 'react'
 import BrandMark from './BrandMark'
 import ModelAssistant, { type AssistantDraft } from './ModelAssistant'
 import { useLocale } from '../LocaleContext'
+import { proposeSingleCardinality } from '../assistantCardinality'
 
 interface AiAssistantProps {
   onStart: () => void
@@ -48,6 +49,7 @@ export default function AiAssistant({
   const [checkRequest, setCheckRequest] = useState(0)
   const [draft, setDraft] = useState('')
   const [busy, setBusy] = useState(false)
+  const [proposal, setProposal] = useState<ReturnType<typeof proposeSingleCardinality>>()
   const [messages, setMessages] = useState<Message[]>(() => [
     { id: nextId(), role: 'bot', text: a.greeting },
   ])
@@ -69,7 +71,7 @@ export default function AiAssistant({
     if (!open || view !== 'chat') return
     const node = listRef.current
     if (node) node.scrollTop = node.scrollHeight
-  }, [open, view, messages, busy])
+  }, [open, view, messages, busy, proposal])
 
   useEffect(() => {
     if (open && view === 'chat') inputRef.current?.focus()
@@ -92,12 +94,20 @@ export default function AiAssistant({
     if (!cleaned || busy) return
     push('user', cleaned)
     setDraft('')
+    setProposal(undefined)
     if (a.checkIntent.test(cleaned)) {
       setView('review')
       if (workbench?.spec.entities.length) setCheckRequest((previous) => previous + 1)
       return
     }
-    if (a.editIntent.test(cleaned)) {
+    if (a.editIntent.test(cleaned) || /只能|仅能|最多/.test(cleaned)) {
+      const planned = variant === 'workbench' && workbench?.applyCardinality
+        ? proposeSingleCardinality(workbench.spec, cleaned) : undefined
+      if (planned) {
+        if (planned.previous === '1') push('bot', a.cardinalityAlreadyOne(planned.target))
+        else setProposal(planned)
+        return
+      }
       push('bot', a.editNotReady)
       return
     }
@@ -106,6 +116,23 @@ export default function AiAssistant({
       push('bot', replyTo(cleaned))
       setBusy(false)
     }, 380)
+  }
+
+  const applyProposal = async () => {
+    if (!proposal || !workbench?.applyCardinality || busy) return
+    if (workbench.spec !== proposal.source || variant !== 'workbench') {
+      setProposal(undefined)
+      push('bot', a.cardinalityOutdated)
+      return
+    }
+    setBusy(true)
+    try {
+      const applied = await workbench.applyCardinality(proposal.source, proposal.draft)
+      push('bot', applied ? a.cardinalityApplied : a.cardinalityFailed)
+      if (applied) setProposal(undefined)
+    } finally {
+      setBusy(false)
+    }
   }
 
   const onSubmit = (event: FormEvent) => {
@@ -184,6 +211,16 @@ export default function AiAssistant({
                   {message.text}
                 </div>
               ))}
+              {proposal && (
+                <div className="ai-assist-bubble is-bot">
+                  <p>{a.cardinalityProposal(proposal.relation, proposal.target, proposal.previous)}</p>
+                  {!token && <p>{a.cardinalityLogin}</p>}
+                  <button type="button" className="btn btn-sm btn-primary" disabled={busy || !token}
+                    onClick={() => void applyProposal()}>{a.cardinalityApply}</button>
+                  <button type="button" className="btn btn-sm" disabled={busy}
+                    onClick={() => setProposal(undefined)}>{a.cardinalityCancel}</button>
+                </div>
+              )}
               {busy && <div className="ai-assist-bubble is-bot is-typing">{a.typing}</div>}
             </div>
 

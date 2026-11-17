@@ -8,6 +8,7 @@ export interface AssistantDraft {
   spec: SpecDraft
   issues: Issue[]
   onLocate: (id: string) => void
+  applyCardinality?: (source: SpecDraft, draft: SpecDraft) => Promise<boolean>
 }
 
 interface Props extends AssistantDraft {

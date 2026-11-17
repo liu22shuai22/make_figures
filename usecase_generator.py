@@ -37,6 +37,8 @@ MAX_USE_CASES = 24
 MAX_LINKS = 48
 MAX_DEPS = 48
 MAX_LABEL = 24
+USECASE_LINE_WIDTH = er.LINE_W
+USECASE_TEXT_SIZE = er.FONT_SIZE
 
 USECASE_SYSTEM_PROMPT = """你是软件需求分析专家。用户会用自然语言描述一个系统，请据此设计 UML 用例图规格。
 【只输出一个 JSON 对象】，不要解释，不要 Markdown 代码块。格式：
@@ -457,7 +459,8 @@ def _usecase_candidate(model, positions=None, *, order=None, columns=None, group
         main_rows = max(map(len, lanes))
         main_w = max(main_w, side_w)
         cols_w = 3 * main_w
-    system_w = max(cols_w + pad * 2, max(er.tw(model["system"]) + 0.8, 3.2))
+    title_width = er.tw(model["system"]) + 0.8
+    system_w = max(cols_w + pad * 2, title_width, 3.2)
     system_h = title_h + max(main_rows, 1) * cell_h + pad
     system_x0, system_y0 = 0.0, 0.0
 
@@ -543,7 +546,7 @@ def _usecase_candidate(model, positions=None, *, order=None, columns=None, group
         system_y0 = min(ys) - title_h - pad / 2
         system_w = max(xs) - min(xs) + pad * 2
         system_h = max(ys) - min(ys) + title_h + pad
-        system_w = max(system_w, er.tw(model["system"]) + 0.8)
+        system_w = max(system_w, title_width)
 
     def place_actors(indices, side):
         boxes = []
@@ -854,7 +857,7 @@ def _route_usecase_dependencies(scene, model):
 
 def _draw_stick_actor(ax, cx, cy, name):
     """倒置坐标系：较小 y 在图像上方；头朝上、脚朝下，名称写在脚下。"""
-    lw = er.LINE_W
+    lw = USECASE_LINE_WIDTH
     head_r = 0.11
     head_y = cy - 0.2
     neck = head_y + head_r
@@ -864,13 +867,14 @@ def _draw_stick_actor(ax, cx, cy, name):
     ax.plot([cx - 0.17, cx + 0.17], [neck + 0.06, neck + 0.06], color="black", lw=lw, zorder=4)
     ax.plot([cx, cx - 0.14], [hip, hip + 0.2], color="black", lw=lw, zorder=4)
     ax.plot([cx, cx + 0.14], [hip, hip + 0.2], color="black", lw=lw, zorder=4)
-    ax.text(cx, hip + 0.28, name, fontproperties=er.FP, ha="center", va="top", zorder=5)
+    ax.text(cx, hip + 0.28, name, fontproperties=er.FP, fontsize=USECASE_TEXT_SIZE,
+            ha="center", va="top", zorder=5)
 
 
 def _choose_dependency_label(kind, path, occupied, shapes, placed):
     text = "«include»" if kind == "include" else "«extend»"
-    width = max(0.30, er.tw(text) * 0.75) + 0.07
-    height = 0.17
+    width = max(0.30, er.tw(text)) + 0.07
+    height = 0.20
     best, best_score = None, math.inf
     segments = sorted(er._path_segments(path), key=lambda line: -math.dist(line[:2], line[2:]))
     for x0, y0, x1, y1 in segments[:3]:
@@ -878,7 +882,7 @@ def _choose_dependency_label(kind, path, occupied, shapes, placed):
         length = math.hypot(dx, dy)
         nx, ny = -dy / length, dx / length
         for fraction in (0.5, 0.35, 0.65):
-            for offset in (-0.16, 0.16, -0.24, 0.24, -0.36, 0.36):
+            for offset in (-0.16, 0.16, -0.24, 0.24, -0.36, 0.36, -0.48, 0.48):
                 box = (x0 + dx * fraction + nx * offset, y0 + dy * fraction + ny * offset, width, height)
                 score = (sum(er._seg_hits_rect(*line, *box) for line in occupied)
                          + sum(er.label_hits_shape(box, shape) for shape in shapes)
@@ -893,7 +897,7 @@ def _choose_dependency_label(kind, path, occupied, shapes, placed):
 
 
 def _draw_dependency(ax, dep):
-    lw = er.LINE_W
+    lw = USECASE_LINE_WIDTH
     kind, points = dep["kind"], dep["points"]
     x0, y0 = points[-2]
     x1, y1 = points[-1]
@@ -916,7 +920,7 @@ def _draw_dependency(ax, dep):
         label = "«include»" if kind == "include" else "«extend»"
         tx, ty = dep["label"][:2]
         ax.text(tx, ty, label, fontproperties=er.FP, ha="center", va="center",
-                fontsize=8, zorder=6, color="black")
+                fontsize=USECASE_TEXT_SIZE, zorder=6, color="black")
         return
 
     # 泛化：实线 + 空心三角指向父用例
@@ -956,12 +960,12 @@ def draw_usecase(model, scene, out, image_format="png", canvas_ratio=None):
     ax.set_ylim(y0 + Hd, y0)
     ax.axis("off")
 
-    lw = er.LINE_W
+    lw = USECASE_LINE_WIDTH
     sx, sy, sw, sh = scene["system"]
     ax.add_patch(Rectangle((sx, sy), sw, sh, fc="white", ec="black", lw=lw, zorder=1))
     # 倒置后 sy 靠近图像上方
     ax.text(sx + sw / 2, sy + 0.22, model["system"], fontproperties=er.FP,
-            ha="center", va="center", zorder=2)
+            fontsize=USECASE_TEXT_SIZE, ha="center", va="center", zorder=2)
 
     for path in scene["paths"]:
         xs, ys = zip(*path)
@@ -973,7 +977,7 @@ def draw_usecase(model, scene, out, image_format="png", canvas_ratio=None):
     for index, (cx, cy, w, h) in enumerate(scene["use_cases"]):
         ax.add_patch(Ellipse((cx, cy), w, h, fc="white", ec="black", lw=lw, zorder=4))
         ax.text(cx, cy, model["use_cases"][index]["name"], fontproperties=er.FP,
-                ha="center", va="center", zorder=5)
+                fontsize=USECASE_TEXT_SIZE, ha="center", va="center", zorder=5)
 
     for actor_i, cx, cy, w, h in scene["actors"]:
         _draw_stick_actor(ax, cx, cy, model["actors"][actor_i]["name"])

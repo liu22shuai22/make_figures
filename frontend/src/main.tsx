@@ -173,13 +173,11 @@ function Root() {
           }}
         />
       </div>
-      {route === USAGE && <TokenUsage onBack={() => go(WORKBENCH)} theme={theme} onToggleTheme={toggleTheme} />}
+      {route === USAGE && <TokenUsage onBack={() => go(WORKBENCH)} />}
       {route === API_PLATFORM && (
         <ApiPlatform
           onBack={() => go(WORKBENCH)}
           onLogin={() => go(LOGIN)}
-          theme={theme}
-          onToggleTheme={toggleTheme}
           token={auth?.token ?? null}
         />
       )}
@@ -192,8 +190,6 @@ function Root() {
             go(WORKBENCH)
           }}
           onBack={() => go(HOME)}
-          theme={theme}
-          onToggleTheme={toggleTheme}
         />
       )}
     </>

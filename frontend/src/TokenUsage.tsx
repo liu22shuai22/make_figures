@@ -1,17 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
-import ThemeToggle from './components/ThemeToggle'
 import BrandMark from './components/BrandMark'
 import UsageChart from './components/UsageChart'
 import UsageVolume from './components/UsageVolume'
-import type { Theme } from './theme'
 import { buildSeries, clockTime, number, tokens, type Usage } from './usage'
 import { useLocale } from './LocaleContext'
 import type { AppCopy } from './appLocale'
 
 interface Props {
   onBack: () => void
-  theme: Theme
-  onToggleTheme: () => void
 }
 
 const WINDOW_DAYS = 30
@@ -33,7 +29,7 @@ function usageStory(usage: Usage, series: ReturnType<typeof buildSeries>, u: App
   return u.shareStory(share)
 }
 
-export default function TokenUsage({ onBack, theme, onToggleTheme }: Props) {
+export default function TokenUsage({ onBack }: Props) {
   const { app } = useLocale()
   const u = app.usage
   const [usage, setUsage] = useState<Usage>()
@@ -87,7 +83,6 @@ export default function TokenUsage({ onBack, theme, onToggleTheme }: Props) {
         </div>
         <div className="toolbar">
           <button type="button" className="btn" onClick={onBack} data-testid="usage-back">{app.backWorkbench}</button>
-          <ThemeToggle theme={theme} onToggle={onToggleTheme} />
         </div>
       </header>
 

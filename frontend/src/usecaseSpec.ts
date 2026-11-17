@@ -1,6 +1,8 @@
 import type {
   ActorDraft,
   ActorKind,
+  DiagramKind,
+  DiagramPositions,
   UseCaseDepDraft,
   UseCaseDepKind,
   UseCaseDraft,
@@ -8,6 +10,7 @@ import type {
   UseCaseLinkDraft,
   UseCaseSpecDraft,
 } from './types'
+import { parsePositions } from './spec'
 
 export const USECASE_LIMITS = {
   actors: 12,
@@ -98,8 +101,16 @@ export const newUseCaseDep = (
 })
 
 type ParseOutcome =
-  | { ok: true; spec: UseCaseSpecDraft; notices: string[] }
+  | { ok: true; spec: UseCaseSpecDraft; notices: string[]; positionsById?: DiagramPositions }
   | { ok: false; error: string }
+
+export function detectDiagramKind(raw: unknown): DiagramKind | undefined {
+  if (!isObject(raw)) return undefined
+  if (raw.kind === 'usecase' || raw.kind === 'er') return raw.kind
+  if (Array.isArray(raw.entities)) return 'er'
+  if (Array.isArray(raw.useCases) || Array.isArray(raw.use_cases) || Array.isArray(raw.actors)) return 'usecase'
+  return undefined
+}
 
 /**
  * 把用例图 JSON 转成可编辑草稿。
@@ -239,11 +250,16 @@ export function parseUseCaseSpec(raw: unknown): ParseOutcome {
 
   const system = toText(raw.system) || toText(raw.title) || '系统'
   const title = toText(raw.title)
+  const positionsById = parsePositions(raw.positions, [...actors, ...useCases])
+  if (raw.positions !== undefined && !positionsById) {
+    notices.push('布局坐标无效或与当前参与者、用例不一致，将使用自动排版。')
+  }
 
   return {
     ok: true,
     spec: { title, system, actors, useCases, links, dependencies },
     notices,
+    positionsById,
   }
 }
 
@@ -396,7 +412,7 @@ export function validateUseCaseSpec(spec: UseCaseSpecDraft): UseCaseIssue[] {
   }
 
   if (spec.actors.length && spec.useCases.length && !spec.links.length) {
-    add('warn', '还没有关联线：请把参与者连到用例。')
+    add('error', '请至少添加一条参与者与用例的关联，再排版。')
   }
   for (const actor of spec.actors) {
     if (actor.name.trim() && !linkedActors.has(actor.id)) {

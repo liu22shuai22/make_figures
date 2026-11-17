@@ -1,9 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
-import ThemeToggle from './components/ThemeToggle'
 import BrandMark from './components/BrandMark'
 import { loginAccount, registerAccount, requestEmailCode } from './auth'
 import type { AuthSession } from './auth'
-import type { Theme } from './theme'
 import { useLocale } from './LocaleContext'
 
 interface AuthPageProps {
@@ -13,8 +11,6 @@ interface AuthPageProps {
   onSuccess: (session: AuthSession) => void
   /** 回到欢迎页 */
   onBack: () => void
-  theme: Theme
-  onToggleTheme: () => void
 }
 
 
@@ -95,7 +91,7 @@ function BackArrowIcon() {
 
 /* ---------- 密码强度判断 ---------- */
 
-export default function AuthPage({ mode, onModeChange, onSuccess, onBack, theme, onToggleTheme }: AuthPageProps) {
+export default function AuthPage({ mode, onModeChange, onSuccess, onBack }: AuthPageProps) {
   const { app } = useLocale()
   const a = app.auth
 
@@ -220,7 +216,6 @@ export default function AuthPage({ mode, onModeChange, onSuccess, onBack, theme,
           <span className="auth-brand-name">ERFlow</span>
         </a>
         <div className="auth-bar-right">
-          <ThemeToggle theme={theme} onToggle={onToggleTheme} />
           <button type="button" className="auth-back-link" onClick={onBack} data-testid="auth-back">
             <BackArrowIcon />
             <span>{app.backHome}</span>
