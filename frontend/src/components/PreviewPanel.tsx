@@ -33,8 +33,6 @@ interface PreviewPanelProps {
   loggedIn?: boolean
   onLogin?: () => void
   diagramKind?: DiagramKind
-  /** 用例图等：规格就绪但后端出图未接通 */
-  backendPending?: boolean
 }
 
 export default function PreviewPanel({
@@ -65,7 +63,6 @@ export default function PreviewPanel({
   loggedIn = true,
   onLogin,
   diagramKind = 'er',
-  backendPending = false,
 }: PreviewPanelProps) {
   const { locale, app } = useLocale()
   const p = app.preview
@@ -289,7 +286,7 @@ export default function PreviewPanel({
               </svg>
             )}
             <p className="empty-title">
-              {emptyDraft ? p.emptyStart : backendPending ? p.emptyReady : p.emptyNone}
+              {emptyDraft ? p.emptyStart : p.emptyNone}
             </p>
             {emptyDraft ? (
               <>
@@ -305,15 +302,6 @@ export default function PreviewPanel({
                     {sampleLabel || (isUseCase ? app.loadSampleUc : app.loadSampleEr)}
                   </button>
                 )}
-              </>
-            ) : backendPending ? (
-              <>
-                <p className="hint" data-testid="preview-backend-pending">
-                  {p.pendingBackend}
-                </p>
-                <button type="button" className="btn" disabled title={p.pendingApi}>
-                  {p.pendingBackendBtn}
-                </button>
               </>
             ) : !loggedIn && onLogin ? (
               <>

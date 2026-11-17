@@ -336,11 +336,9 @@ export const appCopy = {
       brokenTitle: '图片没能显示',
       brokenHint: '浏览器拒绝了这张图片，可以尝试重新排版，或下载后本地查看。',
       emptyStart: '从描述开始',
-      emptyReady: '规格已就绪',
       emptyNone: '还没有图',
       emptyHintUc: '在描述区写一段场景，或载入用例样例编辑。',
       emptyHintEr: '在描述区写一段，或载入选课样例出图。',
-      pendingApi: '用例图排版接口即将接入',
       readyLogin: '规格已就绪，登录后即可出图。',
       readyRender: '规格已就绪，点下方出图。',
       busyLayout: '正在排版出图',
@@ -368,8 +366,6 @@ export const appCopy = {
       figuresCount: (n: number, time: string) => `${n} 张 · ${time}`,
       resetLayout: '恢复自动排版',
       applyRatio: '应用比例',
-      pendingBackend: '用例图出图后端尚未接通。可继续编辑左侧规格，或导出 JSON 备用。',
-      pendingBackendBtn: '出图即将开通',
     },
 
     auth: {
@@ -1003,11 +999,9 @@ export const appCopy = {
       brokenTitle: 'Image could not display',
       brokenHint: 'The browser rejected this image. Try re-layout, or download and open locally.',
       emptyStart: 'Start from a description',
-      emptyReady: 'Spec ready',
       emptyNone: 'No figure yet',
       emptyHintUc: 'Write a scenario, or load the use-case sample.',
       emptyHintEr: 'Write a description, or load the course sample.',
-      pendingApi: 'Use-case layout API coming soon',
       readyLogin: 'Spec ready — sign in to lay out.',
       readyRender: 'Spec ready — lay out below.',
       busyLayout: 'Laying out figures',
@@ -1035,8 +1029,6 @@ export const appCopy = {
       figuresCount: (n: number, time: string) => `${n} · ${time}`,
       resetLayout: 'Reset auto layout',
       applyRatio: 'Apply ratio',
-      pendingBackend: 'Use-case rendering is not connected yet. Keep editing the left spec, or export JSON.',
-      pendingBackendBtn: 'Rendering coming soon',
     },
 
     auth: {

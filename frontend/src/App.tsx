@@ -1746,7 +1746,6 @@ export default function App({ command, onHome, onUsage, onLogin, username, token
             loggedIn={loggedIn}
             onLogin={onLogin}
             diagramKind={diagramKind}
-            backendPending={false}
           />
         </div>
       </main>
