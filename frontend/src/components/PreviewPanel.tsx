@@ -26,6 +26,7 @@ interface PreviewPanelProps {
   onRender: () => void
   onResetLayout: () => void
   onMoveEntity: (entity: string, x: number, y: number) => void
+  onMoveRelation: (index: number, x: number, y: number) => void
   onDownloadAll: () => void
   onDownloadOne: (url: string, filename: string) => void
   onLoadSample?: () => void
@@ -56,6 +57,7 @@ export default function PreviewPanel({
   onRender,
   onResetLayout,
   onMoveEntity,
+  onMoveRelation,
   onDownloadAll,
   onDownloadOne,
   onLoadSample,
@@ -230,7 +232,7 @@ export default function PreviewPanel({
                   setLoaded(active.url)
                 }}
               />
-              {showOverlay && layout && <DragOverlay layout={layout} onMove={onMoveEntity} />}
+              {showOverlay && layout && <DragOverlay layout={layout} onMove={onMoveEntity} onMoveRelation={onMoveRelation} />}
             </div>
           )
         ) : (

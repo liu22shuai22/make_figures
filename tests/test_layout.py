@@ -553,6 +553,7 @@ class LayoutTests(unittest.TestCase):
             "entities": [{"name": "Reader"}, {"name": "Book"}],
             "relations": [{"name": "Borrows", "a": "Reader", "b": "Book"}],
             "positions": {"Book": [2, 1], "Reader": [0, 0]},
+            "relationPositions": [[1, -0.75]],
         }
         font = Path(er.matplotlib.get_data_path()) / "fonts" / "ttf" / "DejaVuSans.ttf"
         with patch.object(er, "find_font", return_value=str(font)), patch.object(
@@ -566,6 +567,9 @@ class LayoutTests(unittest.TestCase):
         self.assertEqual(png["layout"], svg["layout"])
         self.assertEqual([(item["entity"], item["x"], item["y"]) for item in png["layout"]["entities"]],
                          [("Reader", 0, 0), ("Book", 2, 1)])
+        self.assertEqual([(item["index"], item["x"], item["y"]) for item in png["layout"]["relations"]],
+                         [(0, 1, -0.75)])
+        self.assertTrue(all(value == 0 for key, value in png["layout"]["quality"].items() if key != "planar"))
         self.assertTrue(png["overview"]["url"].startswith("data:image/png;base64,"))
         self.assertTrue(svg["overview"]["url"].startswith("data:image/svg+xml;base64,"))
         self.assertIn("重叠", rejected["error"])

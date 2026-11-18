@@ -70,6 +70,11 @@ class UseCaseReviewRequest(GenerateRequest):
     spec: dict
 
 
+class CardinalityRequest(BaseModel):
+    text: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
+    spec: dict
+
+
 class AuthCredentials(BaseModel):
     username: Annotated[str, StringConstraints(strip_whitespace=True, min_length=USERNAME_MIN, max_length=USERNAME_MAX)]
     password: Annotated[str, StringConstraints(min_length=PASSWORD_MIN, max_length=PASSWORD_MAX)]
@@ -345,6 +350,43 @@ def assistant_review_usecase(body: UseCaseReviewRequest):
         usecase_review_slot.release()
 
 
+@app.post("/api/assistant/cardinality", dependencies=[Depends(require_render_account)])
+def assistant_cardinality(body: CardinalityRequest):
+    from pydantic import ValidationError
+    from assistant_edit import propose_cardinality
+    from er_generator import LLMConfigurationError, LLMError, LLMTimeoutError, SpecError, normalize_spec
+    from llm_providers import apply_active_to_environ
+
+    if len(render_request_body(body.spec, "png")) > RENDER_REQUEST_LIMIT:
+        raise HTTPException(413, "规格太大")
+    try:
+        model = normalize_spec(body.spec, report_isolated=False)
+        validate_web_spec(model)
+    except SpecError as error:
+        raise HTTPException(422, str(error)) from None
+    relations = [{key: relation[key] for key in ("name", "entities", "card")}
+                 for relation in public_spec(model)["relations"]]
+    if not any(len(relation["entities"]) == 2 and len(set(relation["entities"])) == 2 for relation in relations):
+        raise HTTPException(422, "请先添加一条连接两个不同实体的二元联系")
+    if not generate_slot.acquire(blocking=False):
+        raise HTTPException(503, "模型正在处理另一项任务，请稍后重试")
+    try:
+        apply_active_to_environ()
+        return propose_cardinality(body.text, relations)
+    except LLMConfigurationError:
+        raise HTTPException(503, "未配置可用的大模型，请检查 API 平台") from None
+    except LLMTimeoutError:
+        raise HTTPException(504, "理解修改要求超时，请稍后重试") from None
+    except LLMError as error:
+        logger.warning("Cardinality model request failed: %s", error)
+        raise HTTPException(502, f"模型调用失败：{error}") from None
+    except (SpecError, ValidationError) as error:
+        logger.warning("Cardinality suggestion unavailable: %s", type(error).__name__)
+        raise HTTPException(502, "模型已返回，但基数修改建议的格式无效") from None
+    finally:
+        generate_slot.release()
+
+
 @app.post("/api/generate", dependencies=[Depends(require_render_account)])
 def generate(request: GenerateRequest):
     from er_generator import LLMConfigurationError, LLMError, LLMTimeoutError, spec_from_text
@@ -572,6 +614,18 @@ def render_in_worker(request):
         model = normalize_spec(spec)
         validate_web_spec(model)
         positions = read_positions(spec, model)
+        relation_positions = {}
+        if "relationPositions" in spec:
+            points = spec["relationPositions"]
+            if positions is None or not isinstance(points, list) or len(points) != len(model["rels"]):
+                raise SpecError("联系坐标须与规格中的联系顺序一一对应，并同时提供实体坐标")
+            for index, point in enumerate(points):
+                if point is None:
+                    continue
+                if (not isinstance(point, list) or len(point) != 2
+                        or any(type(value) not in (int, float) or not -48 <= value <= 48 for value in point)):
+                    raise SpecError(f"第 {index + 1} 条联系的布局坐标无效")
+                relation_positions[index] = tuple(point)
         aspect = request.get("aspect", "auto")
         canvas_ratio = None if aspect == "auto" else tuple(map(int, aspect.split(":")))
         large = (len(model["ents"]) > 15 or len(model["rels"]) > 30
@@ -579,7 +633,8 @@ def render_in_worker(request):
         with matplotlib.rc_context({"text.parse_math": False, "text.usetex": False, "svg.fonttype": "path"}):
             diagrams = render_spec(model, image_format=image_format, effort=0.5,
                                    time_limit=10, parallel=False, positions=positions,
-                                   layout_budget=32.0 if large else 20.0, canvas_ratio=canvas_ratio)
+                                   layout_budget=32.0 if large else 20.0, canvas_ratio=canvas_ratio,
+                                   relation_positions=relation_positions)
     except SpecError as error:
         return {"error": str(error)}
     entities = []
@@ -596,7 +651,9 @@ def render_in_worker(request):
 
 def render_usecase_in_worker(request):
     from er_generator import SpecError, SpecSizeError, matplotlib
-    from usecase_generator import normalize_usecase_spec, read_usecase_positions, render_usecase_spec
+    from usecase_generator import (
+        normalize_usecase_spec, read_dependency_label_positions, read_usecase_positions, render_usecase_spec,
+    )
 
     image_format = request["format"]
     mime_type = {"png": "image/png", "svg": "image/svg+xml"}[image_format]
@@ -604,11 +661,13 @@ def render_usecase_in_worker(request):
         spec = request["spec"]
         model = normalize_usecase_spec(spec)
         positions = read_usecase_positions(spec, model)
+        label_positions = read_dependency_label_positions(spec, model)
         aspect = request.get("aspect", "auto")
         canvas_ratio = None if aspect == "auto" else tuple(map(int, aspect.split(":")))
         with matplotlib.rc_context({"text.parse_math": False, "text.usetex": False, "svg.fonttype": "path"}):
             diagrams = render_usecase_spec(
                 model, image_format=image_format, canvas_ratio=canvas_ratio, positions=positions,
+                label_positions=label_positions,
             )
     except (SpecError, SpecSizeError) as error:
         return {"error": str(error)}

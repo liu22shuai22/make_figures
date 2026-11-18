@@ -3,6 +3,7 @@ import type {
   ActorKind,
   DiagramKind,
   DiagramPositions,
+  RelationPositions,
   UseCaseDepDraft,
   UseCaseDepKind,
   UseCaseDraft,
@@ -10,7 +11,7 @@ import type {
   UseCaseLinkDraft,
   UseCaseSpecDraft,
 } from './types'
-import { parsePositions } from './spec'
+import { LIMITS, parsePositions } from './spec'
 
 export const USECASE_LIMITS = {
   actors: 12,
@@ -101,7 +102,7 @@ export const newUseCaseDep = (
 })
 
 type ParseOutcome =
-  | { ok: true; spec: UseCaseSpecDraft; notices: string[]; positionsById?: DiagramPositions }
+  | { ok: true; spec: UseCaseSpecDraft; notices: string[]; positionsById?: DiagramPositions; labelPositionsById?: DiagramPositions }
   | { ok: false; error: string }
 
 export function detectDiagramKind(raw: unknown): DiagramKind | undefined {
@@ -254,18 +255,33 @@ export function parseUseCaseSpec(raw: unknown): ParseOutcome {
   if (raw.positions !== undefined && !positionsById) {
     notices.push('布局坐标无效或与当前参与者、用例不一致，将使用自动排版。')
   }
+  let labelPositionsById: DiagramPositions | undefined
+  if (raw.dependencyLabelPositions !== undefined) {
+    const points = raw.dependencyLabelPositions
+    if (Array.isArray(points) && Array.isArray(depsRaw) && points.length === depsRaw.length
+        && points.length === dependencies.length && points.every((point, index) => point === null ||
+          dependencies[index].kind !== 'generalize' && Array.isArray(point) && point.length === 2 &&
+          point.every((value) => typeof value === 'number' && Math.abs(value) <= LIMITS.coordinate))) {
+      labelPositionsById = Object.fromEntries(dependencies.flatMap(({ id }, index) =>
+        points[index] === null ? [] : [[id, points[index]]]))
+    } else {
+      notices.push('依赖标签坐标无效，将自动摆放标签。')
+    }
+  }
 
   return {
     ok: true,
     spec: { title, system, actors, useCases, links, dependencies },
     notices,
     positionsById,
+    labelPositionsById,
   }
 }
 
 export function toUseCaseJson(
   spec: UseCaseSpecDraft,
   positions?: Record<string, [number, number]>,
+  labelPositions?: RelationPositions,
 ): UseCaseJsonSpec {
   const actorName = new Map(spec.actors.map((actor) => [actor.id, actor.name.trim()]))
   const useCaseName = new Map(spec.useCases.map((item) => [item.id, item.name.trim()]))
@@ -293,12 +309,14 @@ export function toUseCaseJson(
       .filter((dep) => dep.from && dep.to && dep.from !== dep.to),
   }
   if (positions && Object.keys(positions).length) payload.positions = positions
+  if (labelPositions?.some(Boolean) && labelPositions.length === payload.dependencies.length) {
+    payload.dependencyLabelPositions = labelPositions
+  }
   return payload
 }
 
-export function signatureOfUseCase(spec: UseCaseSpecDraft, positions?: Record<string, [number, number]>): string {
-  const payload = toUseCaseJson(spec)
-  return JSON.stringify(positions ? { ...payload, positions } : payload)
+export function signatureOfUseCase(spec: UseCaseSpecDraft, positions?: DiagramPositions, labelPositions?: RelationPositions): string {
+  return JSON.stringify(toUseCaseJson(spec, positions, labelPositions))
 }
 
 export interface UseCaseIssue {

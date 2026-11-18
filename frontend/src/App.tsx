@@ -51,6 +51,7 @@ import type {
   CanvasRatio,
   DiagramKind,
   DiagramPositions,
+  RelationPositions,
   EntityDraft,
   ImageFormat,
   RelationDraft,
@@ -137,7 +138,9 @@ export default function App({ command, onHome, onUsage, onLogin, username, token
   const [ucSpec, setUcSpec] = useState<UseCaseSpecDraft>(EMPTY_USECASE_SPEC)
   const [ucReview, setUcReview] = useState<DraftReview | null>(null)
   const [positionsById, setPositionsById] = useState<DiagramPositions>()
+  const [relationPositionsById, setRelationPositionsById] = useState<DiagramPositions>()
   const [ucPositionsById, setUcPositionsById] = useState<DiagramPositions>()
+  const [ucLabelPositionsById, setUcLabelPositionsById] = useState<DiagramPositions>()
   const [format, setFormat] = useState<ImageFormat>('png')
   const [ratio, setRatio] = useState<CanvasRatio>('auto')
   const [loading, setLoading] = useState(false)
@@ -246,6 +249,10 @@ export default function App({ command, onHome, onUsage, onLogin, username, token
     () => positionsByName(spec.entities, positionsById),
     [spec.entities, positionsById],
   )
+  const savedRelationPositions = useMemo(
+    () => spec.relations.map(({ id }) => relationPositionsById?.[id] ?? null),
+    [spec.relations, relationPositionsById],
+  )
   const ucNodeIds = useMemo(
     () => [...ucSpec.actors.map((actor) => ({ id: actor.id, name: actor.name })),
       ...ucSpec.useCases.map((item) => ({ id: item.id, name: item.name }))],
@@ -255,15 +262,26 @@ export default function App({ command, onHome, onUsage, onLogin, username, token
     () => positionsByName(ucNodeIds, ucPositionsById),
     [ucNodeIds, ucPositionsById],
   )
-  const draftSignature = useMemo(() => signatureOf(spec, savedPositions), [spec, savedPositions])
-  const ucDraftSignature = useMemo(() => signatureOfUseCase(ucSpec, savedUcPositions), [ucSpec, savedUcPositions])
+  const draftSignature = useMemo(
+    () => signatureOf(spec, savedPositions, savedRelationPositions),
+    [spec, savedPositions, savedRelationPositions],
+  )
+  const savedUcLabelPositions = useMemo(
+    () => ucSpec.dependencies.map(({ id, kind }) =>
+      kind === 'generalize' ? null : ucLabelPositionsById?.[id] ?? null),
+    [ucSpec.dependencies, ucLabelPositionsById],
+  )
+  const ucDraftSignature = useMemo(
+    () => signatureOfUseCase(ucSpec, savedUcPositions, savedUcLabelPositions),
+    [ucSpec, savedUcPositions, savedUcLabelPositions],
+  )
   const activeResult = isUseCase ? ucResult : result
   const sameDraft = isUseCase
     ? ucResult !== null && ucResult.signature === `${ucDraftSignature}|${ucResult.format}`
     : result !== null && result.signature === `${draftSignature}|${result.format}`
   const ratioPending = activeResult !== null && activeResult.ratio !== ratio
   const stale = activeResult !== null && (!sameDraft || activeResult.format !== format || ratioPending)
-  const activeSavedPositions = isUseCase ? savedUcPositions : savedPositions
+  const activeSavedPositions = isUseCase ? savedUcPositions || savedUcLabelPositions.some(Boolean) : savedPositions
   const formatOnly = sameDraft && !!activeSavedPositions && !ratioPending && !!activeResult && activeResult.format !== format
   const ratioOnly = sameDraft && ratioPending && !!activeResult && activeResult.format === format
   const renderLabel = ratioOnly
@@ -274,7 +292,9 @@ export default function App({ command, onHome, onUsage, onLogin, username, token
         ? t.renderSaved
         : t.reLayout
 
-  const renderDraft = useCallback(async (snapshot: SpecDraft, positions?: DiagramPositions, commit?: () => boolean) => {
+  const renderDraft = useCallback(async (
+    snapshot: SpecDraft, positions?: DiagramPositions, commit?: () => boolean, relationPositions?: RelationPositions,
+  ) => {
     if (submitting.current) return false
     if (!token) {
       setError({ title: copy.current.needLogin, detail: copy.current.needLoginRender, action: 'login' })
@@ -287,16 +307,23 @@ export default function App({ command, onHome, onUsage, onLogin, username, token
     setLoading(true)
     setError(null)
     try {
-      const response = await renderSpec(toJsonSpec(snapshot, positions), targetFormat, ratio, token)
+      const response = await renderSpec(toJsonSpec(snapshot, positions, relationPositions), targetFormat, ratio, token)
       if (commit && !commit()) return false
       const nextPositions = positions && Object.fromEntries(
         snapshot.entities.map(({ id, name }) => [id, positions[name.trim()]]),
       )
       setPositionsById((current) => current === positionsById ? nextPositions : current)
+      const nextRelationPositions = positions && relationPositions?.some(Boolean)
+        ? Object.fromEntries(snapshot.relations.flatMap(({ id }, index) => {
+            const point = relationPositions[index]
+            return point ? [[id, point]] : []
+          }))
+        : undefined
+      setRelationPositionsById((current) => current === relationPositionsById ? nextRelationPositions : current)
       const nextResult: RenderResult = {
         format: targetFormat,
         ratio,
-        signature: `${signatureOf(snapshot, positions)}|${targetFormat}`,
+        signature: `${signatureOf(snapshot, positions, relationPositions)}|${targetFormat}`,
         renderedAt: Date.now(),
         overview: response.overview,
         entities: response.entities,
@@ -323,7 +350,7 @@ export default function App({ command, onHome, onUsage, onLogin, username, token
       submitting.current = false
       setLoading(false)
     }
-  }, [format, positionsById, ratio, token])
+  }, [format, positionsById, ratio, relationPositionsById, token])
 
   const applyCardinality = useCallback(async (source: SpecDraft, draft: SpecDraft) => {
     if (currentSpec.current !== source || generatingRef.current || submitting.current) return false
@@ -331,8 +358,8 @@ export default function App({ command, onHome, onUsage, onLogin, username, token
       if (currentSpec.current !== source) return false
       setSpec(draft)
       return true
-    })
-  }, [renderDraft, savedPositions])
+    }, savedRelationPositions)
+  }, [renderDraft, savedPositions, savedRelationPositions])
 
   useLayoutEffect(() => {
     onAssistantDraft(isUseCase
@@ -340,8 +367,8 @@ export default function App({ command, onHome, onUsage, onLogin, username, token
       : { spec, issues: erIssues, onLocate: locateSpec, applyCardinality })
   }, [isUseCase, spec, erIssues, locateSpec, onAssistantDraft, applyCardinality])
 
-  const handleRender = (positions?: DiagramPositions) => {
-    if (!generatingRef.current) return renderDraft(spec, positions)
+  const handleRender = (positions?: DiagramPositions, relationPositions = savedRelationPositions) => {
+    if (!generatingRef.current) return renderDraft(spec, positions, undefined, positions ? relationPositions : undefined)
   }
 
   const layoutPositions = (): DiagramPositions => Object.fromEntries(
@@ -374,6 +401,7 @@ export default function App({ command, onHome, onUsage, onLogin, username, token
     snapshot: UseCaseSpecDraft,
     positions?: DiagramPositions,
     commit?: () => boolean,
+    labelPositions?: RelationPositions,
   ) => {
     if (submitting.current) return false
     if (!token) {
@@ -386,7 +414,7 @@ export default function App({ command, onHome, onUsage, onLogin, username, token
     setLoading(true)
     setError(null)
     try {
-      const response = await renderUseCaseSpec(toUseCaseJson(snapshot, positions), targetFormat, ratio, token)
+      const response = await renderUseCaseSpec(toUseCaseJson(snapshot, positions, labelPositions), targetFormat, ratio, token)
       if (commit && !commit()) return false
       const nodes = [
         ...snapshot.actors.map(({ id, name }) => ({ id, name })),
@@ -396,10 +424,17 @@ export default function App({ command, onHome, onUsage, onLogin, username, token
         nodes.map(({ id, name }) => [id, positions[name.trim()]]),
       )
       setUcPositionsById((current) => (current === ucPositionsById ? nextPositions : current))
+      const nextLabels = labelPositions?.some(Boolean)
+        ? Object.fromEntries(snapshot.dependencies.flatMap(({ id }, index) => {
+            const point = labelPositions[index]
+            return point ? [[id, point]] : []
+          }))
+        : undefined
+      setUcLabelPositionsById((current) => current === ucLabelPositionsById ? nextLabels : current)
       const nextResult: RenderResult = {
         format: targetFormat,
         ratio,
-        signature: `${signatureOfUseCase(snapshot, positions)}|${targetFormat}`,
+        signature: `${signatureOfUseCase(snapshot, positions, labelPositions)}|${targetFormat}`,
         renderedAt: Date.now(),
         overview: response.overview,
         entities: response.entities,
@@ -423,16 +458,15 @@ export default function App({ command, onHome, onUsage, onLogin, username, token
       submitting.current = false
       setLoading(false)
     }
-  }, [format, ratio, token, ucPositionsById])
+  }, [format, ratio, token, ucPositionsById, ucLabelPositionsById])
 
   const renderCurrent = () => {
     if (ratioOnly) void applyRatio()
-    else if (isUseCase) void renderUseCaseDraft(ucSpec, savedUcPositions)
+    else if (isUseCase) void renderUseCaseDraft(ucSpec, savedUcPositions, undefined, savedUcLabelPositions)
     else void handleRender(savedPositions)
   }
   const resetLayout = async () => {
     if (isUseCase) {
-      setUcPositionsById(undefined)
       if (await renderUseCaseDraft(ucSpec)) setTab('overview')
       return
     }
@@ -448,13 +482,31 @@ export default function App({ command, onHome, onUsage, onLogin, username, token
       if (stale || !ucResult?.layout) return
       const positions = layoutUcPositions()
       positions[entity] = [x, y]
-      void renderUseCaseDraft(ucSpec, positions)
+      void renderUseCaseDraft(ucSpec, positions, undefined, savedUcLabelPositions)
       return
     }
     if (stale || !result?.layout) return
     const positions = layoutPositions()
     positions[entity] = [x, y]
     void handleRender(positions)
+  }
+
+  const moveRelation = (index: number, x: number, y: number) => {
+    if (stale) return
+    if (isUseCase) {
+      if (!ucResult?.layout?.dependencyLabels?.some((label) => label.index === index)) return
+      const pins = [...savedUcLabelPositions]
+      pins[index] = [x, y]
+      void renderUseCaseDraft(ucSpec, savedUcPositions, undefined, pins)
+      return
+    }
+    if (!result?.layout || !spec.relations[index]) return
+    const pins = [...savedRelationPositions]
+    for (const relation of result.layout.relations ?? []) {
+      if (spec.relations[relation.index]) pins[relation.index] = [relation.x, relation.y]
+    }
+    pins[index] = [x, y]
+    void handleRender(layoutPositions(), pins)
   }
 
   const changeDiagramKind = (kind: DiagramKind) => {
@@ -521,6 +573,7 @@ export default function App({ command, onHome, onUsage, onLogin, username, token
           attachUseCaseReview(text, parsed.spec, review)
           lastGeneratedUcSpec.current = parsed.spec
           setUcPositionsById(undefined)
+          setUcLabelPositionsById(undefined)
           setUcManualOpen(true)
           setTab('overview')
         }
@@ -631,6 +684,7 @@ export default function App({ command, onHome, onUsage, onLogin, username, token
       const adoptSpec = () => {
         setSpec(parsed.spec)
         setPositionsById(undefined)
+        setRelationPositionsById(undefined)
         setTab('overview')
       }
       const rendered = await renderDraft(parsed.spec, undefined, () => {
@@ -891,6 +945,7 @@ export default function App({ command, onHome, onUsage, onLogin, username, token
     setDiagramKind('er')
     setSpec(sample.spec)
     setPositionsById(undefined)
+    setRelationPositionsById(undefined)
     setResult(null)
     setError(null)
     setTab('overview')
@@ -927,6 +982,7 @@ export default function App({ command, onHome, onUsage, onLogin, username, token
     setUcSpec(sample.spec)
     setUcReview(null)
     setUcPositionsById(undefined)
+    setUcLabelPositionsById(undefined)
     setUcManualOpen(true)
     setUcResult(null)
     setError(null)
@@ -1016,6 +1072,7 @@ export default function App({ command, onHome, onUsage, onLogin, username, token
       setUcSpec(parsed.spec)
       setUcReview(null)
       setUcPositionsById(parsed.positionsById)
+      setUcLabelPositionsById(parsed.labelPositionsById)
       setUcManualOpen(true)
       setUcResult(null)
       setError(null)
@@ -1024,7 +1081,8 @@ export default function App({ command, onHome, onUsage, onLogin, username, token
       const nodes = [...parsed.spec.actors, ...parsed.spec.useCases]
       const positions = positionsByName(nodes, parsed.positionsById)
       const canRender = !validateUseCaseSpec(parsed.spec).some((issue) => issue.level === 'error')
-      const rendered = token && canRender ? await renderUseCaseDraft(parsed.spec, positions) : false
+      const labels = parsed.spec.dependencies.map(({ id }) => parsed.labelPositionsById?.[id] ?? null)
+      const rendered = token && canRender ? await renderUseCaseDraft(parsed.spec, positions, undefined, labels) : false
       setNotice({
         title: copy.current.importedUc(
           file.name,
@@ -1061,12 +1119,14 @@ export default function App({ command, onHome, onUsage, onLogin, username, token
     setDiagramKind('er')
     setSpec(parsed.spec)
     setPositionsById(parsed.positionsById)
+    setRelationPositionsById(parsed.relationPositionsById)
     setResult(null)
     setError(null)
     setTab('overview')
     lastGeneratedSpec.current = parsed.spec
     const namedPositions = positionsByName(parsed.spec.entities, parsed.positionsById)
-    const rendered = token ? await renderDraft(parsed.spec, namedPositions) : false
+    const relationPositions = parsed.spec.relations.map(({ id }) => parsed.relationPositionsById?.[id] ?? null)
+    const rendered = token ? await renderDraft(parsed.spec, namedPositions, undefined, relationPositions) : false
     setNotice({
       title: copy.current.imported(
         file.name,
@@ -1098,16 +1158,16 @@ export default function App({ command, onHome, onUsage, onLogin, username, token
 
   const handleExport = () => {
     if (isUseCase) {
-      const payload = toUseCaseJson(ucSpec, savedUcPositions)
+      const payload = toUseCaseJson(ucSpec, savedUcPositions, savedUcLabelPositions)
       const name = `${safeFileName(ucSpec.title.trim() || ucSpec.system.trim() || 'usecase-spec')}.json`
       downloadText(name, `${JSON.stringify(payload, null, 2)}\n`)
       setNotice({
         title: copy.current.exported(name),
-        items: [savedUcPositions ? copy.current.exportedWithLayout : copy.current.exportedUc],
+        items: [activeSavedPositions ? copy.current.exportedWithLayout : copy.current.exportedUc],
       })
       return
     }
-    const payload = toJsonSpec(spec, savedPositions)
+    const payload = toJsonSpec(spec, savedPositions, savedRelationPositions)
     const name = `${safeFileName(spec.title.trim() || 'er-spec')}.json`
     downloadText(name, `${JSON.stringify(payload, null, 2)}\n`)
     setNotice({
@@ -1723,6 +1783,7 @@ export default function App({ command, onHome, onUsage, onLogin, username, token
             onRender={renderCurrent}
             onResetLayout={() => void resetLayout()}
             onMoveEntity={moveEntity}
+            onMoveRelation={moveRelation}
             formatOnly={formatOnly}
             hasSavedLayout={!!activeSavedPositions}
             renderLabel={renderLabel}

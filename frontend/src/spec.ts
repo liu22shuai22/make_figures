@@ -4,6 +4,7 @@ import type {
   DiagramPositions,
   EntityDraft,
   JsonSpec,
+  RelationPositions,
   RelationDraft,
   SpecDraft,
 } from './types'
@@ -111,7 +112,7 @@ function parseCards(input: unknown, count: number, owner: string, notices: strin
 }
 
 type ParseOutcome =
-  | { ok: true; spec: SpecDraft; notices: string[]; positionsById?: DiagramPositions }
+  | { ok: true; spec: SpecDraft; notices: string[]; positionsById?: DiagramPositions; relationPositionsById?: DiagramPositions }
   | { ok: false; error: string }
 
 type NamedNode = { id: string; name: string }
@@ -232,14 +233,27 @@ export function parseSpec(raw: unknown): ParseOutcome {
   if (raw.positions !== undefined && !positionsById) {
     notices.push('布局坐标无效或与实体不匹配，出图时将自动排版。')
   }
-  return { ok: true, spec: { title: toText(raw.title), entities, relations }, notices, positionsById }
+  let relationPositionsById: DiagramPositions | undefined
+  if (raw.relationPositions !== undefined) {
+    const points = raw.relationPositions
+    if (positionsById && Array.isArray(points) && points.length === relations.length
+        && points.length === relationsRaw.length && points.every((point) => point === null ||
+          Array.isArray(point) && point.length === 2 && point.every((value) =>
+            typeof value === 'number' && Math.abs(value) <= LIMITS.coordinate))) {
+      relationPositionsById = Object.fromEntries(relations.flatMap(({ id }, index) =>
+        points[index] === null ? [] : [[id, points[index]]]))
+    } else {
+      notices.push('联系布局坐标无效，将自动摆放联系。')
+    }
+  }
+  return { ok: true, spec: { title: toText(raw.title), entities, relations }, notices, positionsById, relationPositionsById }
 }
 
 /**
  * 草稿 → 提交给后端的规格 / 导出的 JSON。
  * 两者用同一份输出，保证「导出的 JSON 就是刚才出图的那份规格」。
  */
-export function toJsonSpec(spec: SpecDraft, positions?: DiagramPositions): JsonSpec {
+export function toJsonSpec(spec: SpecDraft, positions?: DiagramPositions, relationPositions?: RelationPositions): JsonSpec {
   const nameById = new Map(spec.entities.map((entity) => [entity.id, entity.name.trim()]))
   return {
     title: spec.title.trim(),
@@ -256,12 +270,13 @@ export function toJsonSpec(spec: SpecDraft, positions?: DiagramPositions): JsonS
       attrs: relation.attrs.map((attr) => attr.name.trim()).filter((label) => label !== ''),
     })),
     ...(positions ? { positions } : {}),
+    ...(positions && relationPositions?.some(Boolean) ? { relationPositions } : {}),
   }
 }
 
 /** 规格指纹：用于判断预览是否已经落后于编辑内容 */
-export function signatureOf(spec: SpecDraft, positions?: DiagramPositions): string {
-  return JSON.stringify(toJsonSpec(spec, positions))
+export function signatureOf(spec: SpecDraft, positions?: DiagramPositions, relationPositions?: RelationPositions): string {
+  return JSON.stringify(toJsonSpec(spec, positions, relationPositions))
 }
 
 export interface Issue {

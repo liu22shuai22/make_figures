@@ -55,6 +55,7 @@ export interface UseCaseJsonSpec {
   links: { actor: string; useCase: string }[]
   dependencies: { kind: UseCaseDepKind; from: string; to: string }[]
   positions?: DiagramPositions
+  dependencyLabelPositions?: RelationPositions
 }
 
 export type Cardinality = '1' | 'm' | 'n' | 'p'
@@ -106,6 +107,7 @@ export const CANVAS_RATIOS = ['auto', '16:9', '4:3', '1:1', '9:16'] as const
 export type CanvasRatio = (typeof CANVAS_RATIOS)[number]
 
 export type DiagramPositions = Record<string, [number, number]>
+export type RelationPositions = ([number, number] | null)[]
 
 /** 提交给 /api/render 的规格，同时也就是「导出 JSON」的内容 */
 export interface JsonSpec {
@@ -113,6 +115,7 @@ export interface JsonSpec {
   entities: { name: string; attrs: string[] }[]
   relations: { name: string; entities: string[]; card: Cardinality[]; attrs: string[] }[]
   positions?: DiagramPositions
+  relationPositions?: RelationPositions
 }
 
 export interface RenderedImage {
@@ -147,6 +150,8 @@ export interface ImageFrame extends DiagramFrame {
 
 export interface DiagramLayout extends ImageFrame {
   entities: EntityBox[]
+  relations?: (Omit<EntityBox, 'entity'> & { index: number; name: string })[]
+  dependencyLabels?: DiagramLayout['relations']
   referenceCount?: number
   useCaseQuality?: {
     overlaps: number

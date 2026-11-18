@@ -2,7 +2,9 @@ import { FormEvent, useEffect, useId, useRef, useState } from 'react'
 import BrandMark from './BrandMark'
 import ModelAssistant, { type AssistantDraft } from './ModelAssistant'
 import { useLocale } from '../LocaleContext'
-import { proposeSingleCardinality } from '../assistantCardinality'
+import { buildCardinalityProposal } from '../assistantCardinality'
+import { ApiError, suggestCardinality } from '../api'
+import { toJsonSpec } from '../spec'
 
 interface AiAssistantProps {
   onStart: () => void
@@ -18,6 +20,7 @@ interface AiAssistantProps {
 }
 
 type Role = 'bot' | 'user'
+type Proposal = NonNullable<ReturnType<typeof buildCardinalityProposal>>
 
 interface Message {
   id: string
@@ -49,7 +52,8 @@ export default function AiAssistant({
   const [checkRequest, setCheckRequest] = useState(0)
   const [draft, setDraft] = useState('')
   const [busy, setBusy] = useState(false)
-  const [proposal, setProposal] = useState<ReturnType<typeof proposeSingleCardinality>>()
+  const [proposal, setProposal] = useState<Proposal>()
+  const [choices, setChoices] = useState<Proposal[]>([])
   const [messages, setMessages] = useState<Message[]>(() => [
     { id: nextId(), role: 'bot', text: a.greeting },
   ])
@@ -71,7 +75,7 @@ export default function AiAssistant({
     if (!open || view !== 'chat') return
     const node = listRef.current
     if (node) node.scrollTop = node.scrollHeight
-  }, [open, view, messages, busy, proposal])
+  }, [open, view, messages, busy, proposal, choices])
 
   useEffect(() => {
     if (open && view === 'chat') inputRef.current?.focus()
@@ -89,31 +93,59 @@ export default function AiAssistant({
     return a.fallback
   }
 
-  const ask = (text: string) => {
+  const selectProposal = (planned: Proposal) => {
+    setChoices([])
+    if (planned.source !== workbench?.spec || variant !== 'workbench') {
+      push('bot', a.cardinalityOutdated)
+    } else if (planned.previous === planned.card) {
+      push('bot', a.cardinalityAlreadySet(planned.target, planned.card))
+    } else {
+      setProposal(planned)
+    }
+  }
+
+  const ask = async (text: string) => {
     const cleaned = text.trim()
     if (!cleaned || busy) return
     push('user', cleaned)
     setDraft('')
     setProposal(undefined)
+    setChoices([])
     if (a.checkIntent.test(cleaned)) {
       setView('review')
       if (workbench?.spec.entities.length) setCheckRequest((previous) => previous + 1)
       return
     }
-    if (a.editIntent.test(cleaned) || /只能|仅能|最多/.test(cleaned)) {
-      const planned = variant === 'workbench' && workbench?.applyCardinality
-        ? proposeSingleCardinality(workbench.spec, cleaned) : undefined
-      if (planned) {
-        if (planned.previous === '1') push('bot', a.cardinalityAlreadyOne(planned.target))
-        else setProposal(planned)
+    const reply = replyTo(cleaned)
+    const erDraft = variant === 'workbench' && workbench?.applyCardinality ? workbench.spec : undefined
+    if (a.editIntent.test(cleaned) || /限制|只能|仅能|最多|至多|不超过|基数/.test(cleaned)
+        || (erDraft?.relations.length && reply === a.fallback)) {
+      if (!erDraft?.relations.length) {
+        push('bot', a.cardinalityNeedDraft)
         return
       }
-      push('bot', a.editNotReady)
+      if (!token) {
+        push('bot', a.cardinalityLogin)
+        return
+      }
+      setBusy(true)
+      try {
+        const suggested = await suggestCardinality(cleaned, toJsonSpec(erDraft), token)
+        const planned = suggested.choices.flatMap((choice) => buildCardinalityProposal(erDraft, choice) ?? [])
+        push('bot', a.cardinalityModelUsed(suggested.model))
+        if (planned.length > 1) setChoices(planned)
+        else if (planned.length === 1) selectProposal(planned[0])
+        else push('bot', a.editNotReady)
+      } catch (error) {
+        push('bot', error instanceof ApiError ? error.message : a.cardinalityFailed)
+      } finally {
+        setBusy(false)
+      }
       return
     }
     setBusy(true)
     window.setTimeout(() => {
-      push('bot', replyTo(cleaned))
+      push('bot', reply)
       setBusy(false)
     }, 380)
   }
@@ -137,7 +169,7 @@ export default function AiAssistant({
 
   const onSubmit = (event: FormEvent) => {
     event.preventDefault()
-    ask(draft)
+    void ask(draft)
   }
 
   return (
@@ -211,9 +243,20 @@ export default function AiAssistant({
                   {message.text}
                 </div>
               ))}
+              {choices.length > 0 && (
+                <div className="ai-assist-bubble is-bot">
+                  <p>{a.cardinalityChooseRelation}</p>
+                  {choices.map((choice) => (
+                    <button type="button" className="btn btn-sm" key={choice.relationIndex}
+                      onClick={() => selectProposal(choice)} disabled={busy}>
+                      {a.cardinalityChoice(choice.relationIndex + 1, choice.relation, choice.target, choice.previous)}
+                    </button>
+                  ))}
+                </div>
+              )}
               {proposal && (
                 <div className="ai-assist-bubble is-bot">
-                  <p>{a.cardinalityProposal(proposal.relation, proposal.target, proposal.previous)}</p>
+                  <p>{a.cardinalityProposal(proposal.relation, proposal.target, proposal.previous, proposal.card)}</p>
                   {!token && <p>{a.cardinalityLogin}</p>}
                   <button type="button" className="btn btn-sm btn-primary" disabled={busy || !token}
                     onClick={() => void applyProposal()}>{a.cardinalityApply}</button>
@@ -231,7 +274,7 @@ export default function AiAssistant({
                     key={item}
                     type="button"
                     className="ai-assist-chip"
-                    onClick={() => ask(item)}
+                    onClick={() => void ask(item)}
                     disabled={busy}
                   >
                     {item}

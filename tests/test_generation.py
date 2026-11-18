@@ -10,7 +10,8 @@ from uuid import uuid4
 from fastapi import HTTPException
 from pydantic import ValidationError
 
-from api import GenerateRequest, generate, get_usage, validate_web_spec
+from api import GenerateRequest, generate, generate_usecase, get_usage, validate_web_spec
+from assistant_edit import resolve_cardinality_reply
 from er_generator import normalize_spec
 
 
@@ -39,11 +40,73 @@ def stream_reply(*chunks, complete=True, done=True, usage=None):
     return response
 
 
+class AssistantCardinalityTests(unittest.TestCase):
+    def test_parallel_relations_require_a_choice_and_keep_endpoint_order(self):
+        relations = [
+            {"name": "选修", "entities": ["学生", "课程"]},
+            {"name": "收藏", "entities": ["课程", "学生"]},
+            {"name": "授课", "entities": ["老师", "课程"]},
+            {"name": "登记", "entities": ["学生", "课程", "老师"]},
+        ]
+        reply = json.dumps({"source": "学生", "target": "课程", "card": "1"})
+        self.assertEqual(resolve_cardinality_reply(reply, relations), {"choices": [
+            {"relationIndex": 0, "endpointIndex": 1, "card": "1"},
+            {"relationIndex": 1, "endpointIndex": 0, "card": "1"},
+        ]})
+
+    def test_unsupported_output_cannot_propose_edits(self):
+        relations = [{"name": "选修", "entities": ["学生", "课程"]}]
+        unknown = json.dumps({"source": "学生", "target": "年级", "card": "1"})
+        self.assertEqual(resolve_cardinality_reply(unknown, relations), {"choices": []})
+        self.assertEqual(resolve_cardinality_reply("{}", relations), {"choices": []})
+        with self.assertRaises(ValidationError):
+            resolve_cardinality_reply(json.dumps({"source": "学生", "target": "课程", "card": "1",
+                                                  "entities": []}), relations)
+
+
 class GenerateTests(unittest.TestCase):
     def setUp(self):
         db_path = Path(__file__).with_name(f".test-usage-{uuid4().hex}.sqlite3")
         self.addCleanup(db_path.unlink, missing_ok=True)
         self.enterContext(patch("token_usage.DB_PATH", db_path))
+
+    def test_usecase_resumes_at_last_complete_compact_record(self):
+        prefix = '{"title":"Library","actors":["Reader"],"useCases":["Borrow","Return"],"links":[["Reader","Borrow"]'
+        cut = prefix + ',["Reader","Ret'
+        continuation = ',["Reader","Return"]]}'
+        with patch.dict("os.environ", SILICONFLOW_ENV, clear=True), patch(
+            "er_generator.urllib.request.urlopen",
+            side_effect=[
+                RemoteDisconnected(), stream_reply(cut, complete=False, done=False), model_reply(continuation),
+            ],
+        ) as upstream:
+            result = generate_usecase(GenerateRequest(text="Reader borrows and returns books"))["spec"]
+
+        self.assertEqual(result["links"], [
+            {"actor": "Reader", "useCase": "Borrow"}, {"actor": "Reader", "useCase": "Return"},
+        ])
+        requests = [call.args[0] for call in upstream.call_args_list]
+        self.assertEqual({request.full_url for request in requests}, {SILICONFLOW_ENV["LLM_BASE_URL"] + "chat/completions"})
+        bodies = [json.loads(request.data) for request in requests]
+        self.assertEqual([body["stream"] for body in bodies], [False, True, False])
+        self.assertIn(prefix, json.loads(bodies[-1]["messages"][-1]["content"]).values())
+
+    def test_usecase_resumes_again_after_receiving_more_complete_records(self):
+        prefix = '{"title":"Library","actors":["Reader"],"useCases":["Borrow"'
+        continued = ',"Return"],"links":[["Reader","Borrow"]'
+        with patch.dict("os.environ", SILICONFLOW_ENV, clear=True), patch(
+            "er_generator.urllib.request.urlopen",
+            side_effect=[
+                RemoteDisconnected(), stream_reply(prefix + ',"Ret', complete=False, done=False),
+                RemoteDisconnected(), stream_reply(continued + ',["Reader","Ret', complete=False, done=False),
+                model_reply(',["Reader","Return"]]}'),
+            ],
+        ) as upstream:
+            result = generate_usecase(GenerateRequest(text="Reader borrows and returns books"))["spec"]
+
+        self.assertEqual(len(result["links"]), 2)
+        body = json.loads(upstream.call_args.args[0].data)
+        self.assertIn(prefix + continued, json.loads(body["messages"][-1]["content"]).values())
 
     def test_usage_counts_disconnected_and_reported_calls_separately(self):
         raw = SAMPLE_PATH.read_text(encoding="utf-8")

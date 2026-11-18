@@ -245,6 +245,68 @@ class UseCaseTests(unittest.TestCase):
             er.plt.close(er._fig0)
             er._fig0 = er._renderer = None
 
+    def test_dependency_fan_uses_straight_lines_without_crossings(self):
+        spec = make_spec("航天发射场调度与发射流程系统", [
+            ("指挥员", ["发起发射审批", "下达点火指令"]),
+            ("神经监护员", ["下达点火指令"]),
+            ("测控工程师", ["开启全频段信号监测", "紧急中止任务"]),
+            ("雷达阵列", ["推送雷达数据"]),
+            ("遥测传感器", ["推送遥测数据"]),
+            ("国家空域管制中心", ["申请空域净空"]),
+            ("定时守护进程", ["系统心跳检测"]),
+            ("气象卫星系统", ["气象条件评估"]),
+        ], [
+            ("include", "发起发射审批", "燃料加注安全检查"),
+            ("include", "开启全频段信号监测", "设备自检"),
+            ("include", "发起发射审批", "气象条件评估"),
+            ("extend", "气象条件评估", "推迟发射预警"),
+            ("include", "执行点火流程", "倒计时广播"),
+            ("include", "执行点火流程", "导流槽降温控制"),
+            ("include", "执行点火流程", "申请空域净空"),
+            ("extend", "执行点火流程", "紧急点火预案"),
+            ("extend", "执行点火流程", "远地点自动启动"),
+            ("include", "系统心跳检测", "日志自动归档"),
+        ])
+        for actor in spec["actors"][:-1]:
+            actor["kind"] = "primary"
+        model = uc.normalize_usecase_spec(spec)
+        er.init_font()
+        try:
+            scene = uc.layout_usecase(model)
+            self.assertFalse(any(scene["useCaseQuality"].values()), scene["useCaseQuality"])
+            self.assertEqual(len(scene["dep_paths"]), len(spec["dependencies"]))
+            self.assertTrue(all(len(dep["points"]) == 2 for dep in scene["dep_paths"]))
+        finally:
+            er.plt.close(er._fig0)
+            er._fig0 = er._renderer = None
+
+    def test_disconnected_workflows_keep_all_links_and_avoid_crossings(self):
+        associations, dependencies = [], []
+        for group in range(4):
+            tasks = [f"Task {group * 6 + i}" for i in range(6)]
+            first, shared_a, second, shared_b, shared_c, check = tasks
+            associations.extend([
+                (f"Role {group * 2}", [first, shared_a, shared_c, shared_b]),
+                (f"Role {group * 2 + 1}", [second, shared_b, shared_c, shared_a]),
+            ])
+            dependencies.extend([
+                ("include", first, check), ("include", second, check), ("extend", shared_a, second),
+            ])
+        model = uc.normalize_usecase_spec(make_spec("Complex workflow", associations, dependencies))
+        er.init_font()
+        try:
+            scene = uc.layout_usecase(model)
+            self.assertEqual(len(scene["actors"]), 8)
+            self.assertEqual(len(scene["use_cases"]), 24)
+            self.assertEqual(len(scene["paths"]), 32)
+            self.assertEqual(len(scene["dep_paths"]), 12)
+            self.assertFalse(any(scene["useCaseQuality"].values()), scene["useCaseQuality"])
+            sx, _, sw, _ = scene["system"]
+            self.assertTrue(all(x + w / 2 < sx or x - w / 2 > sx + sw for _, x, _, w, _ in scene["actors"]))
+        finally:
+            er.plt.close(er._fig0)
+            er._fig0 = er._renderer = None
+
     def test_manual_positions_are_preserved_by_render_worker(self):
         raw = json.loads(LIBRARY.read_text(encoding="utf-8"))
         raw["positions"] = {

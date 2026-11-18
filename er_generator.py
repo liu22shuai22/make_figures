@@ -344,11 +344,11 @@ def _complete_spec_json(text, *, relations_only=False):
     return None
 
 
-def _spec_checkpoint(text):
-    """只保留截至顶层数组中最后一个完整对象的前缀。"""
+def _json_array_checkpoints(text, *, compact=False):
+    """Yield JSON prefixes ending at a complete record, with their missing closing delimiters."""
     start = text.find("{")
     if start < 0:
-        return None
+        return
     text = text[start:start + 32_768]
     stack, checkpoints = [], []
     quoted = escaped = False
@@ -360,6 +360,8 @@ def _spec_checkpoint(text):
                 escaped = True
             elif char == '"':
                 quoted = False
+                if compact and stack == ["{", "["]:
+                    checkpoints.append((i + 1, "]}"))
         elif char == '"':
             quoted = True
         elif char in "{[":
@@ -367,12 +369,17 @@ def _spec_checkpoint(text):
         elif char in "}]":
             if not stack or (stack.pop(), char) not in (("{", "}"), ("[", "]")):
                 break
-            if char == "}" and stack == ["{", "["]:
+            if (char == "}" or compact) and stack == ["{", "["]:
                 checkpoints.append((i + 1, "]}"))
             elif char == "]" and stack == ["{"]:
                 checkpoints.append((i + 1, "}"))
     for end, closing in reversed(checkpoints):
-        candidate = text[:end]
+        yield text[:end], closing
+
+
+def _spec_checkpoint(text):
+    """只保留截至顶层数组中最后一个完整对象的前缀。"""
+    for candidate, closing in _json_array_checkpoints(text):
         document = _complete_spec_json(candidate + closing)
         if (document is not None and document["entities"]
                 and isinstance(document.get("relations", []), list)):
@@ -380,10 +387,10 @@ def _spec_checkpoint(text):
     return None
 
 
-def _preserves_spec_checkpoint(document, saved):
+def _preserves_spec_checkpoint(document, saved, *, array_keys=("entities", "relations")):
     for key, old in saved.items():
         new = document.get(key)
-        if key in ("entities", "relations") and isinstance(old, list):
+        if key in array_keys and isinstance(old, list):
             if not isinstance(new, list) or new[:len(old)] != old:
                 return False
         elif key not in document or new != old:
@@ -1371,9 +1378,13 @@ def _attr_candidates(d, widths):
     return out
 
 
-def compose(model, P):
+def compose(model, P, relation_positions=None):
     """给定实体中心坐标，生成完整场景：自联系菱形、联系属性椭圆、所有连线"""
     ents, dias = base_geometry(model, P)
+    pinned = relation_positions or {}
+    for index, point in pinned.items():
+        if not model["rels"][index]["self"]:
+            dias[index] = point
     rels = model["rels"]
     boxes = [(x, y, w, h, "e", i) for i, (x, y, w, h) in enumerate(ents)]
     segs = []
@@ -1393,7 +1404,7 @@ def compose(model, P):
         ex, ey, ew, eh = ents[e]
         best = None
         for order, (sxn, syn) in enumerate(((-1, -1), (1, -1), (-1, 1), (1, 1))):
-            d = (ex + sxn * (max(ew / 2, 0.3) + 0.55), ey + syn * 0.95)
+            d = pinned.get(k, (ex + sxn * (max(ew / 2, 0.3) + 0.55), ey + syn * 0.95))
             pts = [(ex + sxn * 0.25, ey + syn * eh / 2), (ex + sxn * 0.03, ey + syn * eh / 2)]
             nb = boxes + [(d[0], d[1], DW, DH, "d", k)]
             ns = segs + [(d[0], d[1], p[0], p[1], k, e) for p in pts]
@@ -2670,7 +2681,7 @@ def _reference_model(model, cuts):
     return dict(model, ents=entities, ent_w=widths, rels=relations)
 
 
-def _pinned_reference_scene(model, cuts, positions, page_width, deadline):
+def _pinned_reference_scene(model, cuts, positions, page_width, deadline, relation_positions=None):
     # 只在原实体位置固定时寻找引用框的空位。
     for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
         if time.monotonic() >= deadline:
@@ -2685,7 +2696,7 @@ def _pinned_reference_scene(model, cuts, positions, page_width, deadline):
             y = sum(p[1] for p in other) / len(other)
             distance = max(1.5, model["ent_w"][len(points)] + 0.65)
             points.append((x + dx * distance, y + dy * distance))
-        scene = compose(model, points)
+        scene = compose(model, points, relation_positions)
         paths = route_overview(scene)
         if overview_quality(scene, paths, page_width)[:3] != (0, 0, 0):
             continue
@@ -2695,7 +2706,7 @@ def _pinned_reference_scene(model, cuts, positions, page_width, deadline):
     return None
 
 
-def _reference_overview(model, connections, page_width, deadline, positions):
+def _reference_overview(model, connections, page_width, deadline, positions, relation_positions=None):
     best, best_score = None, None
     for cuts in itertools.islice(_reference_cuts(model, connections, deadline), 4):
         now = time.monotonic()
@@ -2712,7 +2723,7 @@ def _reference_overview(model, connections, page_width, deadline, positions):
         if positions is None:
             scene = _planar_candidate(visual, embedding, visual_connections, page_width, attempt_deadline)
         else:
-            scene = _pinned_reference_scene(visual, cuts, positions, page_width, attempt_deadline)
+            scene = _pinned_reference_scene(visual, cuts, positions, page_width, attempt_deadline, relation_positions)
         if scene is not None:
             score = _planar_readability(scene, page_width)
             if score is not None and (best_score is None or score < best_score):
@@ -3526,7 +3537,10 @@ def _connected_overview_fallback(model, page_width, deadline):
     return None
 
 
-def _verify_overview(model, scene, page_width, *, try_planar, render_deadline=math.inf, topology=None):
+def _verify_overview(model, scene, page_width, *, try_planar, render_deadline=math.inf, topology=None,
+                     relation_positions=None):
+    manual_error = ("当前位置无法保持图形和连线清晰，请把联系菱形移到空白处或恢复自动排版"
+                    if relation_positions else "这组实体位置无法保持零交叉，请换个位置或恢复自动排版")
     squeeze_deadline = render_deadline
     if try_planar:
         render_deadline -= 4.8
@@ -3534,14 +3548,14 @@ def _verify_overview(model, scene, page_width, *, try_planar, render_deadline=ma
     if embedding is None:
         deadline = min(time.monotonic() + 9.0, render_deadline)
         referenced = _reference_overview(model, connections, page_width, deadline,
-                                         None if try_planar else scene["P"])
+                                         None if try_planar else scene["P"], relation_positions)
         if referenced is None:
             if try_planar:
                 connected = _connected_overview_fallback(model, page_width, min(squeeze_deadline, time.monotonic() + 3))
                 if connected is not None:
                     return connected
             message = ("当前规格在排版时间内未找到可验证的零交叉方案，请缩小业务范围后重试"
-                       if try_planar else "这组实体位置无法保持零交叉，请换个位置或恢复自动排版")
+                       if try_planar else manual_error)
             raise SpecError(message)
         visual, scene = referenced
         if try_planar and _needs_compaction(_planar_readability(scene, page_width)) and "positions" in scene:
@@ -3613,7 +3627,7 @@ def _verify_overview(model, scene, page_width, *, try_planar, render_deadline=ma
             if connected is not None:
                 return connected
         message = ("当前规格在排版时间内未找到可验证的零交叉方案，请缩小业务范围后重试"
-                   if try_planar else "这组实体位置无法保持零交叉，请换个位置或恢复自动排版")
+                   if try_planar else manual_error)
         raise SpecError(message)
     return scene
 
@@ -3785,6 +3799,10 @@ def draw_er(model, scene, out, margin=0.08, page_width=None, image_format=None, 
             {"entity": entity["name"], "x": x, "y": y, "width": w, "height": h}
             for entity, (x, y, w, h) in zip(model["ents"], scene["ents"])
         ],
+        "relations": [
+            {"index": key, "name": rels[key]["name"], "x": x, "y": y, "width": w, "height": h}
+            for x, y, w, h, kind, key in boxes if kind == "d"
+        ],
     }
 
 
@@ -3819,7 +3837,7 @@ def _aligned_binary_overview(model, connections, page_width):
 
 
 def layout_overview(model, *, page_width=None, effort=1.5, seed=0, time_limit=45.0,
-                    parallel=True, positions=None, render_deadline=math.inf):
+                    parallel=True, positions=None, render_deadline=math.inf, relation_positions=None):
     model = dict(model, ent_w=[max(tw(e["name"]) + 0.34, 0.62) for e in model["ents"]],
                  attr_w=[[tw(a) + 0.26 for a in r["attrs"]] for r in model["rels"]])
     topology = overview_topology(model)
@@ -3836,14 +3854,15 @@ def layout_overview(model, *, page_width=None, effort=1.5, seed=0, time_limit=45
             scene = layout_er(model, page_width=page_width, effort=effort, seed=seed,
                               time_limit=time_limit, parallel=parallel)
     else:
-        scene = compose(model, positions)
+        scene = compose(model, positions, relation_positions)
         if any(boxes_overlap(entity, other) for i, entity in enumerate(scene["ents"])
                for other in scene["ents"][:i]):
             raise SpecError("实体矩形重叠，请把实体放到空白处")
     landscape = positions is None and page_width is None
     finishing_time = (0.65 if landscape else 0) + (0.60 if positions is None else 0)
     scene = _verify_overview(model, scene, page_width, try_planar=positions is None,
-                             render_deadline=render_deadline - finishing_time, topology=topology)
+                             render_deadline=render_deadline - finishing_time, topology=topology,
+                             relation_positions=relation_positions)
     if landscape:
         scene = _orient_overview_landscape(scene.get("display_model", model), scene,
                                            min(render_deadline, time.monotonic() + 0.65))
@@ -3860,7 +3879,8 @@ def layout_overview(model, *, page_width=None, effort=1.5, seed=0, time_limit=45
 
 def render_spec(model, output_dir=None, *, image_format="png", font=None, dpi=300,
                 chapter="1", only=None, page_width=None, effort=1.5, seed=0,
-                time_limit=45.0, parallel=True, positions=None, layout_budget=20.0, canvas_ratio=None):
+                time_limit=45.0, parallel=True, positions=None, layout_budget=20.0, canvas_ratio=None,
+                relation_positions=None):
     """绘制已规范化的规格。未指定目录时，在返回值中提供图片字节。"""
     global DPI, _fig0, _renderer
     render_deadline = math.inf if parallel else time.monotonic() + layout_budget
@@ -3889,7 +3909,7 @@ def render_spec(model, output_dir=None, *, image_format="png", font=None, dpi=30
         if only != "entities":
             model, scene = layout_overview(model, page_width=page_width, effort=effort, seed=seed,
                                            time_limit=time_limit, parallel=parallel, positions=positions,
-                                           render_deadline=render_deadline)
+                                           render_deadline=render_deadline, relation_positions=relation_positions)
             filename = f"图{chapter}-{len(model['ents']) + 1}_整体ER图.{image_format}"
             draw(filename, None, draw_er, model, scene, page_width=page_width, manual=positions is not None,
                  canvas_ratio=canvas_ratio)

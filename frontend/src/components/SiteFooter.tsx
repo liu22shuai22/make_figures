@@ -19,12 +19,12 @@ interface SiteFooterProps {
 
 /**
  * 欢迎页共用的页脚：
- * 上行 = 品牌块（徽标 + 名称 + 一句话定位）+ 页脚导航；下行 = 版权 + 小字说明。
+ * 上行 = 品牌块 + 导航；下行 = 版权与本地/渠道说明。
  */
 export default function SiteFooter({
   onHome,
   onWorkbench,
-  note = '规格与出图均在本地服务完成，不上传第三方',
+  note = '规格与出图在本机完成；生成仅发往你接入的模型渠道',
   badge = '公测',
   tagline = '自然语言凝成可编辑的结构 · 语义沙',
   navLabel = '页脚导航',
@@ -39,7 +39,7 @@ export default function SiteFooter({
       <div className="foot-inner">
         <div className="foot-grid">
           <div className="foot-brand">
-            <BrandMark size={36} />
+            <BrandMark size={34} />
             <div className="foot-brand-text">
               <div className="foot-brand-row">
                 <strong>ERFlow</strong>
@@ -68,8 +68,12 @@ export default function SiteFooter({
           </nav>
         </div>
         <div className="foot-bar">
-          <span>© {year} ERFlow · {freeLabel}</span>
-          <span className="foot-note">{note}</span>
+          <p className="foot-copy">
+            <span>© {year} ERFlow</span>
+            <span className="foot-copy-sep" aria-hidden="true" />
+            <span>{freeLabel}</span>
+          </p>
+          <p className="foot-note">{note}</p>
         </div>
       </div>
     </footer>

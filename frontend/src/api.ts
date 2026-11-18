@@ -7,6 +7,7 @@ import type {
   RenderedImage,
   UseCaseJsonSpec,
 } from './types'
+import type { CardinalityChoice } from './assistantCardinality'
 
 type ApiErrorKind = 'network' | 'timeout' | 'http' | 'shape'
 
@@ -45,6 +46,25 @@ interface ReviewFinding {
 export interface ModelReview {
   structural: ReviewFinding[]
   status: 'local'
+}
+
+export async function suggestCardinality(text: string, spec: JsonSpec, token: string): Promise<{ choices: CardinalityChoice[]; model: string }> {
+  const result = await postJson('/api/assistant/cardinality', { text, spec }, {
+    token, timeoutMs: 32_000, timeoutMessage: '理解修改要求超时，请稍后重试。',
+  })
+  if (!isOk(result.status)) {
+    const detail = result.status === 404 ? '当前后端缺少改基数接口，请检查正在运行的后端版本。' :
+      detailToText(detailOf(result.data)) || '暂时无法理解修改要求。'
+    throw new ApiError(detail, 'http', result.status)
+  }
+  const body = result.data as { choices: CardinalityChoice[]; model: string } | null
+  if (!body || typeof body.model !== 'string' || !body.model.trim() ||
+      !Array.isArray(body.choices) || body.choices.some((choice) => !choice ||
+      !Number.isInteger(choice.relationIndex) || choice.relationIndex < 0 ||
+      ![0, 1].includes(choice.endpointIndex) || !['1', 'm', 'n', 'p'].includes(choice.card))) {
+    throw new ApiError('未收到有效的基数修改建议。', 'shape')
+  }
+  return body
 }
 
 export interface UseCaseReviewFinding {
