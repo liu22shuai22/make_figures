@@ -702,62 +702,17 @@ export const appCopy = {
       } as Record<string, string>,
       recordDuration: (ms: number) => (ms >= 1000 ? `${(ms / 1000).toFixed(1)} s` : `${ms} ms`),
 
-      editNotReady: '请说明要限制哪两个实体之间的数量，以及哪一端要改。例如「限制每个学生最多选一门课」。',
       cardinalityProposal: (relation: string, target: string, previous: string, next: string) => `拟修改「${relation}」联系里「${target}」一端的基数，从 ${previous} 改为 ${next}。`,
       cardinalityAlreadySet: (target: string, card: string) => `「${target}」这一端的基数已经是 ${card}。`,
       cardinalityChooseRelation: '找到了多条联系，你想改哪一条？',
       cardinalityChoice: (number: number, relation: string, target: string, previous: string) => `第 ${number} 条 · ${relation} · ${target}端当前为 ${previous}`,
-      cardinalityNeedDraft: '请先打开一份含有联系的 E-R 图草稿，再告诉我怎么改基数。',
-      cardinalityModelUsed: (model: string) => `收到模型「${model}」的返回结果。`,
       cardinalityOutdated: '草稿已变化，请重新发送修改要求。',
       cardinalityApplied: '已应用修改并重新排版。',
       cardinalityFailed: '这次没有应用修改，草稿和预览已保留。请检查工作台提示后重试。',
       cardinalityLogin: '登录后可应用修改并重新排版。',
       cardinalityApply: '应用修改',
       cardinalityCancel: '取消',
-      emptyPrompt: '可以说说你想了解的：怎么开始、能不能改图、怎么导出，或「语义沙」是什么。',
-      fallback:
-        '我是 ERFlow 的语义沙向导，可以介绍怎么开始、图能否编辑、导出格式、系统上限，以及语义沙本身。也可以直接点下方入口进入工作台。',
       quick: ['怎么开始？', '图还能改吗？', '导出会糊吗？', '什么是语义沙？'],
-      knowledge: [
-        {
-          keys: ['开始', '怎么用', '入门', '如何', '流程', 'start', 'how', 'begin'],
-          answer:
-            '三步就够：① 点「开始绘图」用自然语言描述系统；② 在工作台核对实体、联系和基数；③ 排版后下载 PNG 或 SVG。也可以先点「体验示例」看选课系统怎么出图。',
-        },
-        {
-          keys: ['还能改', '能改吗', '怎么改', '如何编辑', '怎么编辑', '怎么微调', '怎么拖', 'edit', 'change', 'drag'],
-          answer:
-            '能改。生成结果是表单不是死图：加字段、改主键、调基数、拖动布局都可以，改完重新排版即可，不用重写描述。',
-        },
-        {
-          keys: ['导出', '下载', '糊', 'png', 'svg', 'word', 'export', 'download', 'blurry'],
-          answer:
-            '贴进 Word 用 PNG，按当前画布出图；要打印或继续放大用 SVG，矢量放大不失真。两种格式都在预览区一键下载。',
-        },
-        {
-          keys: ['语义沙', '物质', '未来', '人工智能', 'ai', 'semantic sand', 'sand'],
-          answer:
-            '「语义沙」是 ERFlow 对 AI × E-R 的想象：描述像沙粒一样被聚成可编辑的结构——节点是实体，细丝是联系，还能继续生长和改写。你现在用的工作台，就是把这句话落成可用的工具。',
-        },
-        {
-          keys: ['多大', '上限', '多少', '实体', '联系', 'limit', 'max', 'size'],
-          answer: '单个系统最多 24 个实体、40 条联系，每个实体或联系最多 12 个属性。超出时工作台会说明原因。',
-        },
-        {
-          keys: ['保存', '上传', '隐私', '本地', 'save', 'privacy', 'upload', 'local'],
-          answer:
-            '描述只用于当次生成，不写入数据库；规格与图默认只在你浏览器里。用量页只统计请求数和 token，不保留原文。',
-        },
-        {
-          keys: ['sgi', '通向'],
-          answer: '「通向SGI」是 ERFlow 的品牌去向。需要外链时，把目标网址配进站点配置即可。',
-        },
-        {
-          keys: ['登录', '注册', '账号', 'login', 'sign in', 'register', 'account'],
-          answer: '生成与排版需要登录。欢迎页右上角可进入登录；未登录时仍可浏览介绍，并先体验页面说明。',
-        },
-      ],
       reviewAria: '模型检查',
       localRules: '本地规则检查',
       checking: '正在检查…',
@@ -769,8 +724,6 @@ export const appCopy = {
       locate: '定位',
       localOkLogin: '已检查本地规则。登录后可检查重复联系。',
       noFindings: '本次结构检查未发现问题。',
-      checkIntent: /^(?:请\s*)?(?:帮我\s*)?(?:检查|审查|核对)(?:一下)?|^(?:please\s+)?(?:check|review)\b/i,
-      editIntent: /改成|改为|替换|帮我改|^(?:请\s*)?(?:帮我\s*)?(?:修改|添加|删除)|\b(?:change|replace|add|delete|modify)\b/i,
     },
   },
 
@@ -1474,63 +1427,17 @@ export const appCopy = {
       } as Record<string, string>,
       recordDuration: (ms: number) => (ms >= 1000 ? `${(ms / 1000).toFixed(1)} s` : `${ms} ms`),
 
-      editNotReady:
-        'You can change one cardinality in an existing E-R relation by naming both entities in Chinese. Other changes are available in the form.',
       cardinalityProposal: (relation: string, target: string, previous: string, next: string) => `Change the “${target}” end of “${relation}” from ${previous} to ${next}.`,
       cardinalityAlreadySet: (target: string, card: string) => `The “${target}” end is already ${card}.`,
       cardinalityChooseRelation: 'Several relations match. Which one would you like to edit?',
       cardinalityChoice: (number: number, relation: string, target: string, previous: string) => `No. ${number} · ${relation} · ${target} end is ${previous}`,
-      cardinalityNeedDraft: 'Open an E-R draft with a relation before asking to change cardinality.',
-      cardinalityModelUsed: (model: string) => `Received a response from ${model}.`,
       cardinalityOutdated: 'The draft has changed. Send the edit request again.',
       cardinalityApplied: 'The edit was applied and the diagram was rendered.',
       cardinalityFailed: 'The edit could not be applied. The draft and preview were kept.',
       cardinalityLogin: 'Sign in to apply the edit and render the diagram.',
       cardinalityApply: 'Apply edit',
       cardinalityCancel: 'Cancel',
-      emptyPrompt: 'Ask about getting started, editing, export, or what Semantic Sand is.',
-      fallback:
-        'I’m the Semantic Sand guide for ERFlow — getting started, editing, export, limits, and the brand idea. Or use the links below to open the workbench.',
       quick: ['How do I start?', 'Can I edit?', 'Will export blur?', 'What is Semantic Sand?'],
-      knowledge: [
-        {
-          keys: ['开始', '怎么用', '入门', '如何', '流程', 'start', 'how', 'begin'],
-          answer:
-            'Three steps: ① Start drawing and describe your system; ② Review entities, relations, and cardinality; ③ Lay out and download PNG/SVG. Or try the course sample first.',
-        },
-        {
-          keys: ['还能改', '能改吗', '怎么改', '如何编辑', '怎么编辑', '怎么微调', '怎么拖', 'edit', 'change', 'drag'],
-          answer:
-            'Yes. You edit forms, not a dead image — add fields, change keys, tweak cardinality, drag layout, then re-layout.',
-        },
-        {
-          keys: ['导出', '下载', '糊', 'png', 'svg', 'word', 'export', 'download', 'blurry'],
-          answer:
-            'Use PNG for Word; use SVG for print or further scaling. Both download under the preview.',
-        },
-        {
-          keys: ['语义沙', '物质', '未来', '人工智能', 'ai', 'semantic sand', 'sand'],
-          answer:
-            '“Semantic Sand” is ERFlow’s take on AI × E-R: description grains gather into editable structure — nodes as entities, threads as relations — that you can keep reshaping.',
-        },
-        {
-          keys: ['多大', '上限', '多少', '实体', '联系', 'limit', 'max', 'size'],
-          answer: 'Up to 24 entities and 40 relations per system; up to 12 attributes each. The workbench explains when you exceed them.',
-        },
-        {
-          keys: ['保存', '上传', '隐私', '本地', 'save', 'privacy', 'upload', 'local'],
-          answer:
-            'Descriptions are for that generation only and aren’t stored in a database. Specs and figures stay in your browser. Usage counts requests and tokens, not the raw text.',
-        },
-        {
-          keys: ['sgi', '通向'],
-          answer: '“To SGI” is ERFlow’s brand direction. Configure an external URL in site settings when you need a link.',
-        },
-        {
-          keys: ['登录', '注册', '账号', 'login', 'sign in', 'register', 'account'],
-          answer: 'Generation and layout need sign-in. Use the top-right on the welcome page. You can still browse without signing in.',
-        },
-      ],
       reviewAria: 'Model check',
       localRules: 'Local rule check',
       checking: 'Checking…',
@@ -1542,8 +1449,6 @@ export const appCopy = {
       locate: 'Locate',
       localOkLogin: 'Local rules checked. Sign in to check duplicate relations.',
       noFindings: 'No structure issues found this time.',
-      checkIntent: /^(?:请\s*)?(?:帮我\s*)?(?:检查|审查|核对)(?:一下)?|^(?:please\s+)?(?:check|review)\b/i,
-      editIntent: /改成|改为|替换|帮我改|^(?:请\s*)?(?:帮我\s*)?(?:修改|添加|删除)|\b(?:change|replace|add|delete|modify)\b/i,
     },
   },
 } as const

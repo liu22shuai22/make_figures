@@ -12,7 +12,7 @@
 - 规格 JSON 导入导出；E-R 可保存实体位置
 - 多模型渠道（硅基流动、DeepSeek、New API、Ollama 等）
 - 账号登录、邮箱验证码注册、Token 用量统计
-- 语义沙助手：使用问答与草稿结构检查
+- 语义沙助手：使用问答、受控外联、草稿工具与执行记录（规划与验收见 [`docs/assistant-execution-plane.md`](docs/assistant-execution-plane.md)）
 
 ## Stack
 
@@ -102,6 +102,8 @@ cp smtp.local.example.json smtp.local.json
 ├── llm_providers.py       # 模型渠道
 ├── auth.py / mailer.py    # 登录注册与邮件
 ├── start_backend.py       # 后端启动（可自动重载）
+├── assistant/             # 语义沙执行面
+├── docs/                  # 设计与验收说明
 ├── examples/              # 选课 E-R / 图书借阅用例样例
 ├── tests/
 └── frontend/              # Vite + React 工作台
