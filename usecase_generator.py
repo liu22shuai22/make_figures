@@ -1093,9 +1093,15 @@ def _layout_usecase_components(model, components):
                            links=[link for _, link in links], dependencies=[dep for _, dep in deps])
         scene = _layout_two_actor_group(local_model) or _usecase_candidate(local_model, route=False)
         if any(_finish_usecase_scene(local_model, scene, short_labels_first=True)[:4]):
-            scene = _layout_tree_component(local_model)
-            if scene is None:
-                return None
+            tree = _layout_tree_component(local_model)
+            if tree is not None:
+                scene = tree
+            else:
+                # Shared actors make a component cyclic even when straight drawing is possible.
+                scene = _layout_usecase_candidate_search(local_model)
+                scene = _improve_straight_usecase(local_model, scene)
+                if any(_finish_usecase_scene(local_model, scene, short_labels_first=True)[:4]):
+                    return None
         sx, sy, sw, sh = scene["system"]
         _, top, _, local_bottom = scene["bounds"]
         dx, dy = -sx - sw / 2, bottom - min(top, sy)
@@ -1184,13 +1190,68 @@ def layout_usecase(model, positions=None):
     dep_order = sorted(range(len(deps)), key=lambda i: (deps[i]["from"], deps[i]["to"], deps[i]["kind"]))
     ordered = dict(model, actors=[actors[i] for i in actor_order], use_cases=[cases[i] for i in case_order],
                    links=[links[i] for i in link_order], dependencies=[deps[i] for i in dep_order])
-    scene = _layout_automatic_usecase(ordered)
+    scene = _compact_usecase_scene(ordered, _layout_automatic_usecase(ordered))
     # The editor and pinned dependency labels address records in their original order.
     scene["actors"] = sorted((actor_order[i], *box) for i, *box in scene["actors"])
     for key, order in (("use_cases", case_order), ("paths", link_order), ("dep_paths", dep_order)):
         values = scene[key].copy()
         for i, original in enumerate(order):
             scene[key][original] = values[i]
+    return scene
+
+
+def _compact_usecase_scene(model, scene):
+    """Remove empty coordinate bands, then validate newly straightened edges and labels."""
+    best_rank = _finish_usecase_scene(model, scene, short_labels_first=True)
+    for gap in (0.9, 0.6):
+        boxes = [*scene["use_cases"], *(box for _, *box in scene["actors"])]
+        shifts = []
+        for axis in (0, 1):
+            intervals = sorted((b[axis] - b[axis + 2] / 2, b[axis] + b[axis + 2] / 2) for b in boxes)
+            bands = []
+            right = intervals[0][1]
+            for left, end in intervals[1:]:
+                if left - right > gap:
+                    bands.append((right, left, left - right - gap))
+                right = max(right, end)
+            shifts.append(bands)
+
+        def move(x, y):
+            return tuple(value - sum(amount for _, end, amount in shifts[axis] if value >= end)
+                         for axis, value in enumerate((x, y)))
+
+        positions = {case["name"]: move(*box[:2]) for case, box in zip(model["use_cases"], scene["use_cases"])}
+        for index, x, y, _, _ in scene["actors"]:
+            positions[model["actors"][index]["name"]] = move(x, y)
+        trial = _usecase_candidate(model, positions, route=False)
+        sx, _, sw, _ = trial["system"]
+        # Keep each actor adjacent to the actual system boundary and its associated cases.
+        for index, x, y, w, _ in trial["actors"]:
+            side = -1 if x < sx + sw / 2 else 1
+            positions[model["actors"][index]["name"]] = (
+                sx - w / 2 - 0.7 if side < 0 else sx + sw + w / 2 + 0.7, y)
+        trial = _usecase_candidate(model, positions, route=False)
+        rank = _finish_usecase_scene(model, trial, short_labels_first=True)
+        if rank < best_rank:
+            scene, best_rank = trial, rank
+        for index, actor in enumerate(model["actors"]):
+            ys = [positions[model["use_cases"][link["use_case"]]["name"]][1]
+                  for link in model["links"] if link["actor"] == index]
+            if not ys:
+                continue
+            name = actor["name"]
+            half_width = _actor_size(name)[0] / 2
+            for x in (sx - half_width - 0.7, sx + sw + half_width + 0.7):
+                for offset in (0, -0.8, 0.8):
+                    moved = dict(positions, **{name: (x, sum(ys) / len(ys) + offset)})
+                    trial = _usecase_candidate(model, moved, route=False)
+                    actor_boxes = [box for _, *box in trial["actors"]]
+                    if any(er.boxes_overlap(box, other, gap=0.15)
+                           for i, box in enumerate(actor_boxes) for other in actor_boxes[:i]):
+                        continue
+                    rank = _finish_usecase_scene(model, trial, short_labels_first=True)
+                    if rank < best_rank:
+                        positions, scene, best_rank = moved, trial, rank
     return scene
 
 
@@ -1210,6 +1271,48 @@ def _layout_automatic_usecase(model):
         rank = _finish_usecase_scene(model, candidate, short_labels_first=True)
         if not any(rank[:4]) and (conflicts or rank[4] < bends):
             return candidate
+    if len(model["links"]) + len(model["dependencies"]) <= 40:
+        candidate = _improve_straight_usecase(model, best)
+        if _finish_usecase_scene(model, candidate, short_labels_first=True) < _finish_usecase_scene(model, best):
+            return candidate
+    return best
+
+
+def _improve_straight_usecase(model, scene):
+    """Move nodes before accepting detours, evaluating all associations and labels together."""
+    positions = {case["name"]: box[:2] for case, box in zip(model["use_cases"], scene["use_cases"])}
+    positions.update((model["actors"][i]["name"], (x, y)) for i, x, y, _, _ in scene["actors"])
+    actors = {actor["name"] for actor in model["actors"]}
+    sx, _, sw, _ = scene["system"]
+    cases = [case["name"] for case in model["use_cases"]]
+
+    def evaluate(points):
+        trial = _usecase_candidate(model, points, route=False)
+        rank = _finish_usecase_scene(model, trial, short_labels_first=True)
+        # A single count of geometric violations allows moves that trade a crossing for a box hit
+        # temporarily, instead of trapping the search behind a lexicographic barrier.
+        return (sum(rank[:4]), rank[0], rank[1], rank[2], rank[3], rank[-1]), trial
+
+    score, best = evaluate(positions)
+    for step in (1.2, 0.6, 0.3):
+        for name in [*cases, *sorted(actors)]:
+            x, y = positions[name]
+            choices = [(x, y + dy) for dy in (-2 * step, -step, step, 2 * step)]
+            if name in actors:
+                # A shared use case often needs its actors on opposite sides.
+                gap = _actor_size(name)[0] / 2 + 1.05
+                opposite = sx + sw + gap if x < sx else sx - gap
+                choices += [(opposite, y + dy) for dy in (-step, 0, step)]
+            else:
+                choices += [(x + dx, y + dy) for dx in (-step, step) for dy in (-step, 0, step)
+                            if sx + 0.8 < x + dx < sx + sw - 0.8]
+            for point in choices:
+                moved = dict(positions, **{name: point})
+                candidate_score, candidate = evaluate(moved)
+                if candidate_score < score:
+                    positions, score, best = moved, candidate_score, candidate
+        if not score[0]:
+            break
     return best
 
 

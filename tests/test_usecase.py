@@ -32,6 +32,49 @@ def make_spec(title, associations, dependencies):
 
 
 class UseCaseTests(unittest.TestCase):
+    def test_compaction_removes_empty_bands_without_geometry_conflicts(self):
+        model = uc.normalize_usecase_spec(make_spec("Independent tasks", [
+            ("Reader", ["Query"]), ("Operator", ["Publish"]), ("Auditor", ["Check"]),
+        ], []))
+        er.init_font()
+        try:
+            positions = {"Reader": (-5, 0), "Query": (0, 0),
+                         "Operator": (-5, 10), "Publish": (0, 10),
+                         "Auditor": (-5, 20), "Check": (0, 20)}
+            original = uc._usecase_candidate(model, positions, route=False)
+            uc._finish_usecase_scene(model, original)
+            compact = uc._compact_usecase_scene(model, original)
+            self.assertFalse(any(compact["useCaseQuality"].values()))
+            def area(scene):
+                x, y, right, bottom = scene["bounds"]
+                return (right - x) * (bottom - y)
+            self.assertLess(area(compact), area(original) * 0.7)
+            self.assertTrue(all(len(path) == 2 for path in compact["paths"]))
+        finally:
+            er.plt.close(er._fig0)
+            er._fig0 = er._renderer = None
+
+    def test_shared_roles_with_dependencies_stay_straight(self):
+        from benchmarks.usecase_fixtures import spec, shuffled
+        raw = spec("智慧城市交通指挥系统",[
+        ("城市大脑AI系统","primary",["生成绿波带预案"]),
+        ("120急救系统","primary",["触发紧急避让","推送救护车位置"]),
+        ("交通信号灯硬件","secondary",["切换绿灯","执行绿波带放行","中断信号灯状态"]),
+        ("普通交警","primary",["录入违章罚单","发起恶劣天气应急预案","手动控制路口红绿灯","登录"]),
+        ("指挥中心调度员","primary",["手动控制路口红绿灯","登录","下达交通管制指令","确认绿波带预案"])],
+        [("include","录入违章罚单","调取车辆档案"),("include","触发紧急避让","切换绿灯"),("include","触发紧急避让","中断信号灯状态"),("include","执行绿波带放行","中断信号灯状态"),("include","下达交通管制指令","全城广播")])
+        er.init_font()
+        try:
+            for source in (raw, shuffled(raw, 7)):
+                model = uc.normalize_usecase_spec(source)
+                scene = uc.layout_usecase(model)
+                self.assertFalse(any(scene["useCaseQuality"].values()), scene["useCaseQuality"])
+                paths = [*scene["paths"], *(dep["points"] for dep in scene["dep_paths"])]
+                self.assertTrue(all(er._path_bends(path) == 0 for path in paths))
+        finally:
+            er.plt.close(er._fig0)
+            er._fig0 = er._renderer = None
+
     def test_automatic_geometry_is_invariant_to_spec_order(self):
         from benchmarks.usecase_fixtures import shuffled
 
