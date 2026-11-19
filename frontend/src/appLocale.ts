@@ -656,6 +656,7 @@ export const appCopy = {
       recordsEmpty: '暂无执行记录。在「使用问答」里发一轮后会出现在这里。',
       recordsCount: (n: number) => `最近 ${n} 轮`,
       recordCombined: '组合',
+      recordLoop: '循环',
       recordOutcome: {
         ok: '完成',
         warn: '部分未完成',
@@ -678,6 +679,7 @@ export const appCopy = {
         policy: '策略',
         route: '路由',
         tool: '工具',
+        loop: '续跑',
       } as Record<string, string>,
       recordStatus: {
         ok: '完成',
@@ -1381,6 +1383,7 @@ export const appCopy = {
       recordsEmpty: 'No turns yet. Ask something in Q&A and it will show up here.',
       recordsCount: (n: number) => `${n} recent turn${n === 1 ? '' : 's'}`,
       recordCombined: 'Combined',
+      recordLoop: 'Loop',
       recordOutcome: {
         ok: 'Done',
         warn: 'Partially blocked',
@@ -1403,6 +1406,7 @@ export const appCopy = {
         policy: 'Policy',
         route: 'Route',
         tool: 'Tool',
+        loop: 'Continue',
       } as Record<string, string>,
       recordStatus: {
         ok: 'Done',

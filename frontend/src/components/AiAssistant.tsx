@@ -373,7 +373,11 @@ export default function AiAssistant({
                                   </span>
                                 ))}
                                 {tools.length > 1 ? (
-                                  <span className="ai-assist-record-tag">{a.recordCombined}</span>
+                                  <span className="ai-assist-record-tag">
+                                    {record.steps.some((step) => step.stage === 'loop')
+                                      ? a.recordLoop
+                                      : a.recordCombined}
+                                  </span>
                                 ) : null}
                               </span>
                               <span className="ai-assist-record-meta">

@@ -22,10 +22,36 @@ class AssistantPlaneTests(unittest.TestCase):
                                   diagram_kind="usecase").trace["blocked"], "diagram_kind")
         refused = run_turn("怎么开始？顺便查看Token用量和赌博")
         self.assertEqual([s["stage"] for s in refused.trace["steps"]], ["policy"])
-        # Encyclopedic / paid lookups stay single-turn even with connectors.
-        wiki_combo = run_turn("怎么开始？顺便你知道APEC吗", surface="welcome")
-        self.assertFalse(wiki_combo.trace.get("combined"))
-        self.assertEqual(wiki_combo.trace.get("tools"), ["faq.answer"])
+        # Without product-tool connectors, FAQ+百科走 agent loop（不是分句组合）。
+        with patch("assistant.tools.web_lookup._wikipedia_summary", return_value={
+            "title": "Asia-Pacific Economic Cooperation",
+            "extract": "Asia-Pacific Economic Cooperation (APEC) is a forum.",
+            "url": "https://en.wikipedia.org/wiki/APEC",
+        }):
+            wiki_combo = run_turn("怎么开始？顺便你知道APEC吗", surface="welcome")
+        self.assertTrue(wiki_combo.trace.get("agent_loop"))
+        self.assertEqual(wiki_combo.trace.get("tools"), ["faq.answer", "web.lookup"])
+
+    def test_agent_loop_chains_review_to_cardinality_without_connector(self):
+        result = run_turn("检查模型并帮我改基数", surface="workbench")
+        self.assertTrue(result.trace.get("agent_loop"))
+        self.assertEqual(result.trace.get("tools"), ["draft.open_review", "draft.propose_cardinality"])
+        self.assertEqual(result.actions, [{"type": "open_review"}])
+        self.assertIn("登录", result.messages[-1].text)
+
+    def test_agent_loop_stops_at_cap(self):
+        from assistant.loop import MAX_AGENT_STEPS, decide_continue
+        from assistant.types import TurnResult, TurnMessage
+
+        ctx = TurnContext(message="检查模型并帮我改基数", surface="workbench")
+        last = TurnResult("open_review", [TurnMessage("bot", "ok")], trace={"tool": "draft.open_review"})
+        # Already at cap → no continue.
+        self.assertIsNone(decide_continue(
+            ctx,
+            tools_run=["faq.answer", "web.lookup", "usage.explain"][:MAX_AGENT_STEPS],
+            last_tool="usage.explain",
+            last_result=last,
+        ))
 
     def test_history_is_scoped_and_replay_does_not_execute(self):
         import tempfile
