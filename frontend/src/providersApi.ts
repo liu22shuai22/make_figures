@@ -161,15 +161,6 @@ export async function probeGateway(
   return data as { ok: boolean; models: ModelOption[]; error: string | null; base_url: string; hello: unknown }
 }
 
-/** @deprecated 使用 probeGateway */
-export async function probeMagpie(
-  token: string,
-  baseUrl?: string,
-  apiKey?: string,
-): Promise<{ ok: boolean; models: ModelOption[]; error: string | null; base_url: string; hello: unknown }> {
-  return probeGateway(token, { base_url: baseUrl || '', api_key: apiKey })
-}
-
 export async function listRemoteModels(
   token: string,
   body: { base_url: string; api_key: string; id?: string },

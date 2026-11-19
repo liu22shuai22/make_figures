@@ -12,7 +12,7 @@ ERFlow 是本机 E-R / 用例图工具。助手优先处理产品用法与草稿
 - local_faq + usage.explain — 查看 Token 用量与请求统计
 - open_review + draft.open_review — 用户要求检查/审查/核对模型或草稿
 - product_tool + draft.propose_cardinality — 改 E-R 联系基数、限制多少门课等
-- web_search + web.lookup — 询问外部事实/组织/术语释义（如 APEC、UML、什么是范式），走受控百科检索
+- web_search + web.lookup — 询问外部事实/组织/术语释义（如 UML、什么是范式），走受控百科检索
 - refuse + scope.refuse — 敏感时政人身攻击、色情赌博毒品、纯无意义灌水、要求越权操作系统
 
 规则：

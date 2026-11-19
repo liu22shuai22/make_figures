@@ -137,12 +137,24 @@ class AssistantPlaneTests(unittest.TestCase):
         self.assertEqual(extract_lookup_query("你知道APEC吗"), "APEC")
         self.assertEqual(extract_lookup_query("什么是 UML"), "UML")
 
-    def test_web_lookup_prefers_canonical_apec_title(self):
+    def test_web_lookup_prefers_defined_acronym_over_compound_title(self):
         from assistant.tools.web_lookup import _summary_score, _title_score
 
         youth = _title_score("APEC", "APEC 青年科學節")
-        org = _title_score("APEC", "亚太经济合作组织")
-        en = _title_score("APEC", "Asia-Pacific Economic Cooperation")
+        org = _summary_score(
+            "APEC",
+            {
+                "title": "亚太经济合作组织",
+                "extract": "亚太经济合作组织（APEC）是亚太地区的经济合作论坛。",
+            },
+        )
+        en = _summary_score(
+            "APEC",
+            {
+                "title": "Asia-Pacific Economic Cooperation",
+                "extract": "Asia-Pacific Economic Cooperation (APEC) is a forum.",
+            },
+        )
         summit = _title_score("APEC", "2026年中国APEC峰会")
         self.assertGreater(org, youth)
         self.assertGreater(en, youth)
@@ -151,6 +163,8 @@ class AssistantPlaneTests(unittest.TestCase):
             _summary_score("APEC", {"title": "APEC 青年科學節", "extract": "science fair"}),
             0,
         )
+        self.assertGreaterEqual(org, 20)
+        self.assertGreaterEqual(en, 20)
 
     def test_web_lookup_falls_back_to_model_when_wiki_fails(self):
         with patch("assistant.router.can_model_route", return_value=False):

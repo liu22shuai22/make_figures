@@ -105,14 +105,14 @@ _SCOPE = {
     "zh": (
         "这个问题不在语义沙当前能力范围内。"
         "我可以回答：怎么开始、能不能改图、怎么导出、系统上限、语义沙是什么、登录与隐私；"
-        "也可以受控检索公开百科（例如「什么是 APEC」）；"
+        "也可以受控检索公开百科（例如「什么是 UML」）；"
         "在工作台里还可以帮你改 E-R 基数或检查模型。"
         "敏感时政与有害内容仍会拒绝。"
     ),
     "en": (
         "That’s outside Semantic Sand’s current scope. "
         "I can help with getting started, editing, export, limits, what Semantic Sand is, sign-in and privacy; "
-        "controlled encyclopedia lookup (e.g. “What is APEC?”); "
+        "controlled encyclopedia lookup (e.g. “What is UML?”); "
         "and on the workbench, E-R cardinality edits or model checks. "
         "Sensitive politics and harmful content are still refused."
     ),

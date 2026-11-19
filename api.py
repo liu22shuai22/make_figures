@@ -317,16 +317,6 @@ def providers_probe_gateway(body: GatewayProbeRequest):
     return probe_gateway(base_url, _resolve_provider_api_key(body.api_key, body.id))
 
 
-@app.post("/api/providers/probe-magpie", dependencies=[Depends(require_render_account)])
-def providers_probe_magpie(body: GatewayProbeRequest):
-    """兼容旧路径；默认仍探测 Magpie，也可传 New API 地址。"""
-    from llm_providers import probe_gateway
-
-    base_url = (body.base_url or "").strip() or "http://127.0.0.1:3425/v1"
-    key = _resolve_provider_api_key(body.api_key, body.id) or "magpie-erflow"
-    return probe_gateway(base_url, key)
-
-
 @app.post("/api/providers/list-models", dependencies=[Depends(require_render_account)])
 def providers_list_models(body: ModelsProbeRequest):
     from llm_providers import list_openai_models

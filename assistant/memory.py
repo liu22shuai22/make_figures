@@ -70,7 +70,7 @@ def resolve_lookup_query(ctx: TurnContext, extracted: str) -> tuple[str, str | N
     topic = last_topic(ctx)
     message = ctx.message.strip()
     if topic and (looks_like_follow_up(message) or not extracted):
-        # 「它有哪些成员」→ 「亚太经济合作组织 有哪些成员」
+        # Follow-ups reuse the last encyclopedia topic, e.g. 「它有哪些成员」.
         follow = extracted or message
         follow = re.sub(r"^(?:那|那么|它|他|她|这个|那个)\s*", "", follow).strip() or message
         if topic.casefold() not in follow.casefold():

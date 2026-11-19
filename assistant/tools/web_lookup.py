@@ -32,9 +32,9 @@ def lookup(ctx: TurnContext) -> TurnResult:
     query, topic_used = resolve_lookup_query(ctx, extracted)
     if not query:
         text = (
-            "请用更具体的名称再问一次，例如「什么是 APEC」或「介绍一下 UML」。"
+            "请用更具体的名称再问一次，例如「什么是 UML」或「介绍一下范式」。"
             if locale == "zh"
-            else "Ask with a clearer name, e.g. “What is APEC?” or “Tell me about UML.”"
+            else "Ask with a clearer name, e.g. “What is UML?” or “Tell me about ER models.”"
         )
         return TurnResult(
             band="web_search",
@@ -121,7 +121,6 @@ def extract_lookup_query(message: str) -> str:
     text = message.strip()
     text = _STRIP_RE.sub("", text).strip()
     text = _TRAIL_RE.sub("", text).strip()
-    # Drop leftover particles like 「你知道APEC吗」 → after strip may still have 吗 handled
     text = re.sub(r"^(?:关于|有关)\s*", "", text).strip()
     return text[:80]
 
@@ -139,21 +138,35 @@ def looks_like_lookup(message: str) -> bool:
     )
 
 
-_ACRONYM_HINTS = {
-    "apec": ("Asia-Pacific Economic Cooperation", "亚太经济合作组织"),
-    "uml": ("Unified Modeling Language", "统一建模语言"),
-    "sql": ("SQL", "SQL"),
-}
+_ACRONYM_RE = re.compile(r"^[A-Za-z]{2,8}$")
+_YEAR_PREFIX_RE = re.compile(r"^(?:19|20)\d{2}")
+
+
+def _is_acronym(query: str) -> bool:
+    return bool(_ACRONYM_RE.fullmatch(query.strip()))
+
+
+def _paren_defines_acronym(text: str, acronym: str) -> bool:
+    """Wikipedia leads often introduce a topic as “Full Name (ACRONYM)”."""
+    return bool(
+        re.search(rf"[\(（]\s*{re.escape(acronym)}\s*[\)）]", text[:360], re.I)
+    )
+
+
+def _compound_acronym_title(title: str, acronym: str) -> bool:
+    """Title embeds the acronym plus other content (nested/event pages)."""
+    if not re.search(re.escape(acronym), title, flags=re.I):
+        return False
+    leftover = re.sub(re.escape(acronym), "", title, count=1, flags=re.I)
+    leftover = re.sub(r"[\s\-–—:/·•、,，.。()（）\[\]]+", "", leftover)
+    return len(leftover) >= 2
 
 
 def _wikipedia_summary(query: str, locale: Locale) -> dict[str, str] | None:
     primary = "zh" if locale == "zh" else "en"
     secondary = "en" if primary == "zh" else "zh"
-    # Latin acronyms: try English first (better redirect), then hints, then search.
-    if re.fullmatch(r"[A-Za-z]{2,8}", query.strip()):
-        langs = ("en", "zh")
-    else:
-        langs = (primary, secondary)
+    # Latin acronyms: English first (cleaner redirects), then Chinese search.
+    langs = ("en", "zh") if _is_acronym(query) else (primary, secondary)
 
     candidates: list[tuple[float, dict[str, str]]] = []
 
@@ -166,8 +179,6 @@ def _wikipedia_summary(query: str, locale: Locale) -> dict[str, str] | None:
 
     for lang in langs:
         consider(_summary_for_title(query, lang))
-        for hint in _ACRONYM_HINTS.get(query.strip().casefold(), ()):
-            consider(_summary_for_title(hint, lang))
 
     if candidates:
         candidates.sort(key=lambda item: item[0], reverse=True)
@@ -184,8 +195,12 @@ def _wikipedia_summary_lang(query: str, lang: str) -> dict[str, str] | None:
     titles = _search_titles(query, lang)
     if not titles:
         return None
-    ranked = sorted(titles, key=lambda title: _title_score(query, title), reverse=True)
-    for title in ranked[:6]:
+    ranked = sorted(
+        ((_summary_score(query, {"title": title, "extract": ""}), title) for title in titles),
+        key=lambda item: item[0],
+        reverse=True,
+    )
+    for _, title in ranked[:6]:
         summary = _summary_for_title(title, lang)
         if summary and _summary_score(query, summary) >= 20:
             return summary
@@ -260,16 +275,11 @@ def _title_score(query: str, title: str) -> float:
         score += 20.0
     # Prefer compact canonical pages over long event/subtopic titles.
     score -= max(0, len(t) - max(len(q), 8)) * 0.8
-    if re.match(r"^(?:19|20)\d{2}", t):
+    if _YEAR_PREFIX_RE.match(t):
         score -= 45.0
-    # Acronym queries (APEC, UML…): boost org/cooperation pages, penalize festivals.
-    if re.fullmatch(r"[A-Za-z]{2,8}", q):
-        if re.search(r"经济合作组织|Economic Cooperation|亚太经合|Entity–relationship|统一建模|Unified Modeling", t, re.I):
-            score += 80.0
-        if re.search(r"经济|合作|组织|會議|会议|Economic|Cooperation|Organization|Organisation|模型|Language", t, re.I):
-            score += 25.0
-        if re.search(r"青年|科學節|科学节|Festival|Youth|Contest|大赛|峰会", t, re.I):
-            score -= 80.0
+    if _is_acronym(q) and _compound_acronym_title(t, q):
+        # Acronym is only a slice of the title (side event / nested page).
+        score -= 50.0
     return score
 
 
@@ -277,15 +287,22 @@ def _summary_score(query: str, summary: dict[str, str]) -> float:
     title = summary.get("title") or ""
     extract = summary.get("extract") or ""
     score = _title_score(query, title)
-    if re.fullmatch(r"[A-Za-z]{2,8}", query.strip()):
-        blob = f"{title}\n{extract}"
-        if re.search(r"^(?:19|20)\d{2}|青年|科學節|科学节|Festival|Youth|峰会", title, re.I):
-            if not re.search(r"经济合作组织|Asia-Pacific Economic Cooperation", title, re.I):
-                return -1.0
-        if re.search(r"青年|科學節|科学节|Festival|Youth", title, re.I):
-            return -1.0
-        if re.search(r"经济合作|Economic Cooperation|亚太经合|论坛|forum", blob, re.I):
-            score += 30.0
+    if not _is_acronym(query):
+        return score
+
+    acronym = query.strip()
+    blob = f"{title}\n{extract}"
+    defined = _paren_defines_acronym(blob, acronym)
+    if defined:
+        score += 55.0
+    elif re.search(rf"(?<![A-Za-z]){re.escape(acronym)}(?![A-Za-z])", extract[:360], re.I):
+        score += 20.0
+
+    # Compound acronym titles without a lead definition are almost always side events.
+    if _compound_acronym_title(title, acronym) and not defined:
+        return -1.0
+    if _YEAR_PREFIX_RE.match(title.strip()) and not defined:
+        return -1.0
     return score
 
 

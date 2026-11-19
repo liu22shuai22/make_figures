@@ -563,11 +563,6 @@ def probe_gateway(
     }
 
 
-def probe_magpie(base_url: str = "http://127.0.0.1:3425/v1", api_key: str = "magpie-erflow") -> dict:
-    """兼容旧接口；内部走通用网关探测。"""
-    return probe_gateway(base_url or "http://127.0.0.1:3425/v1", api_key or "magpie-erflow")
-
-
 def list_openai_models(base_url: str, api_key: str) -> list[dict]:
     endpoint = base_url.rstrip("/")
     if not endpoint.endswith("/v1"):
