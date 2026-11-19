@@ -32,6 +32,34 @@ def make_spec(title, associations, dependencies):
 
 
 class UseCaseTests(unittest.TestCase):
+    def test_automatic_geometry_is_invariant_to_spec_order(self):
+        from benchmarks.usecase_fixtures import shuffled
+
+        raw = json.loads(LIBRARY.read_text(encoding="utf-8"))
+
+        def geometry(spec):
+            model = uc.normalize_usecase_spec(spec)
+            scene = uc.layout_usecase(model)
+            actors = [a["name"] for a in model["actors"]]
+            cases = [c["name"] for c in model["use_cases"]]
+            return (scene["system"], scene["bounds"],
+                    {actors[i]: box for i, *box in scene["actors"]},
+                    dict(zip(cases, scene["use_cases"], strict=True)),
+                    {(actors[e["actor"]], cases[e["use_case"]]): path
+                     for e, path in zip(model["links"], scene["paths"], strict=True)},
+                    {(cases[e["from"]], cases[e["to"]], e["kind"]): path
+                     for e, path in zip(model["dependencies"], scene["dep_paths"], strict=True)})
+
+        er.init_font()
+        try:
+            original = geometry(raw)
+            for seed in range(5):
+                with self.subTest(seed=seed):
+                    self.assertEqual(original, geometry(shuffled(raw, seed)))
+        finally:
+            er.plt.close(er._fig0)
+            er._fig0 = er._renderer = None
+
     def test_geometry_counts_are_serializable_with_numpy_coordinates(self):
         raw = make_spec("Test", [("Reader", ["Borrow", "Return"])], [])
         model = uc.normalize_usecase_spec(raw)
@@ -149,6 +177,25 @@ class UseCaseTests(unittest.TestCase):
                 else:
                     width, height = map(float, ET.fromstring(image).attrib["viewBox"].split()[2:])
                     self.assertAlmostEqual(width / height, 16 / 9, places=6)
+
+    def test_library_identity_check_linked_to_librarian_stays_straight(self):
+        spec = make_spec("图书借阅系统", [
+            ("读者", ["续借", "借书", "还书"]),
+            ("管理员", ["借书", "还书", "核验读者身份"]),
+        ], [("include", "借书", "核验读者身份"), ("include", "还书", "核验读者身份")])
+        er.init_font()
+        try:
+            for cases in (spec["useCases"], list(reversed(spec["useCases"]))):
+                model = uc.normalize_usecase_spec(dict(spec, useCases=cases))
+                scene = uc.layout_usecase(model)
+                self.assertFalse(any(scene["useCaseQuality"].values()), scene["useCaseQuality"])
+                self.assertEqual(len(scene["paths"]), 6)
+                self.assertEqual(len(scene["dep_paths"]), 2)
+                self.assertTrue(all(len(path) == 2 for path in scene["paths"]))
+                self.assertTrue(all(len(dep["points"]) == 2 for dep in scene["dep_paths"]))
+        finally:
+            er.plt.close(er._fig0)
+            er._fig0 = er._renderer = None
 
     def test_candidate_search_preserves_routes_and_does_not_worsen_geometry(self):
         fixtures = [

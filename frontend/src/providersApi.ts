@@ -151,12 +151,11 @@ export async function removeProvider(token: string, id: string): Promise<Provide
 
 export async function probeGateway(
   token: string,
-  baseUrl?: string,
-  apiKey?: string,
+  body: { base_url: string; api_key?: string; id?: string },
 ): Promise<{ ok: boolean; models: ModelOption[]; error: string | null; base_url: string; hello: unknown }> {
   const { response, data } = await authFetch('/api/providers/probe-gateway', token, {
     method: 'POST',
-    body: JSON.stringify({ base_url: baseUrl || null, api_key: apiKey || null }),
+    body: JSON.stringify(body),
   })
   if (!response.ok) throw new Error(detailMessage(data, '探测网关失败'))
   return data as { ok: boolean; models: ModelOption[]; error: string | null; base_url: string; hello: unknown }
@@ -168,7 +167,7 @@ export async function probeMagpie(
   baseUrl?: string,
   apiKey?: string,
 ): Promise<{ ok: boolean; models: ModelOption[]; error: string | null; base_url: string; hello: unknown }> {
-  return probeGateway(token, baseUrl, apiKey)
+  return probeGateway(token, { base_url: baseUrl || '', api_key: apiKey })
 }
 
 export async function listRemoteModels(

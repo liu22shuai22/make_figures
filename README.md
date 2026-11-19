@@ -40,18 +40,16 @@ python -m venv .venv
 source .venv/bin/activate
 
 pip install -r requirements.txt
-python start_siliconflow.py
+python start_backend.py
 ```
 
-后端默认监听 `http://127.0.0.1:8000`。首次启动会提示输入硅基流动 API Key。
+后端默认监听 `http://127.0.0.1:8000`。模型密钥不写在启动脚本里：打开前端 **API 平台**，添加并启用渠道（写入本机 `llm.local.json`）。
 
 也可直接：
 
 ```bash
 uvicorn api:app --host 127.0.0.1 --port 8000
 ```
-
-此时需自行配置模型渠道（环境变量或 API 平台页）。
 
 ### 2. Frontend
 
@@ -68,6 +66,14 @@ npm run dev
 ```bash
 python -m unittest discover -s tests -v
 ```
+
+用例图自动排版可用固定验收集比较改动前后的结果。在仓库根目录运行以下命令，记录每例的重叠、穿框、连线冲突、标签冲突、折点和耗时。
+
+```bash
+python -X utf8 benchmark_usecase.py --baseline benchmarks/usecase_baseline.json --output usecase_report.json
+```
+
+基准分为回归、独立评估和压力三组。用例集包含固定的乱序版本。耗时只统计排版，同一机器和字体下可用 `--repeats` 重复测量。对比时使用相同的用例集和重复次数。报告中的 `graphPlanar` 记录关系图是否平面，实际画法还受系统框和图元尺寸约束。
 
 ## Configuration
 
@@ -95,7 +101,7 @@ cp smtp.local.example.json smtp.local.json
 ├── usecase_generator.py   # 用例图生成与排版
 ├── llm_providers.py       # 模型渠道
 ├── auth.py / mailer.py    # 登录注册与邮件
-├── start_siliconflow.py   # 硅基流动一键启动
+├── start_backend.py       # 后端启动（可自动重载）
 ├── examples/              # 选课 E-R / 图书借阅用例样例
 ├── tests/
 └── frontend/              # Vite + React 工作台
@@ -105,7 +111,7 @@ cp smtp.local.example.json smtp.local.json
 
 | Command | Description |
 | --- | --- |
-| `python start_siliconflow.py` | 启动后端（可 `--new-key` / `--no-reload`） |
+| `python start_backend.py` | 启动后端（可 `--no-reload`） |
 | `cd frontend && npm run dev` | 前端开发服务器 |
 | `cd frontend && npm run build` | 类型检查并构建前端 |
 | `python -m unittest discover -s tests -v` | 运行单元测试 |

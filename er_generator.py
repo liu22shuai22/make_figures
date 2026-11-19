@@ -26,15 +26,14 @@
 3) 手改规格再重画（第 1 步会自动把规格保存为 输出目录/spec.json）
        python er_generator.py --spec figures/spec.json
 
-大模型配置（任选其一，只用到标准库，无需额外 pip 包）
+大模型配置
 --------
-    Anthropic :  set ANTHROPIC_API_KEY=sk-ant-xxx            （Windows）
-                 export ANTHROPIC_API_KEY=sk-ant-xxx         （macOS/Linux）
-    OpenAI 兼容（DeepSeek、通义、Kimi、智谱、本地 Ollama 等都行）：
+    Web / API：在前端「API 平台」配置并启用渠道（llm.local.json），不要依赖启动脚本环境变量。
+    命令行调试仍可用环境变量或 --provider / --model / --base-url / --api-key：
                  export LLM_API_KEY=xxx
                  export LLM_BASE_URL=https://api.deepseek.com/v1
                  export LLM_MODEL=deepseek-chat
-    也可用命令行 --provider / --model / --base-url / --api-key 指定。
+                 # Anthropic: ANTHROPIC_API_KEY=sk-ant-xxx
 
 JSON 规格格式
 -------------
@@ -608,12 +607,26 @@ def _http_json(url, headers, body, timeout=180, *, stream=None, on_usage=None):
 
 def llm_chat(messages, provider, model, api_key, base_url, *, timeout=180, system_prompt=SYSTEM_PROMPT,
              stream=True, on_usage=None):
+    def tracked(usage):
+        if on_usage is None:
+            return
+        payload = dict(usage or {})
+        payload.setdefault("provider", provider)
+        payload.setdefault("model", model)
+        payload.setdefault(
+            "base_url",
+            base_url
+            or ("https://api.anthropic.com" if provider == "anthropic" else "https://api.openai.com/v1"),
+        )
+        on_usage(payload)
+
+    notify = tracked if on_usage is not None else None
     if provider == "anthropic":
         url = (base_url or "https://api.anthropic.com").rstrip("/") + "/v1/messages"
         data = _http_json(url, {"content-type": "application/json", "x-api-key": api_key,
                                 "anthropic-version": "2023-06-01"},
                           {"model": model, "max_tokens": 4096, "system": system_prompt, "messages": messages},
-                          timeout=timeout, on_usage=on_usage)
+                          timeout=timeout, on_usage=notify)
         try:
             return "".join(block.get("text", "") for block in data["content"])
         except (KeyError, TypeError, AttributeError):
@@ -630,7 +643,7 @@ def llm_chat(messages, provider, model, api_key, base_url, *, timeout=180, syste
         if model == "deepseek-ai/DeepSeek-V4.1-Flash":
             body["enable_thinking"] = False
     data = _http_json(url, headers, body, timeout=timeout, stream=stream if siliconflow else None,
-                      on_usage=on_usage)
+                      on_usage=notify)
     try:
         content = data["choices"][0]["message"]["content"]
     except (KeyError, IndexError, TypeError):

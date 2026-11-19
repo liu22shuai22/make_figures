@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 from io import BytesIO
-from itertools import combinations
+from itertools import chain, combinations, islice
 import json
 import math
 import os
@@ -888,6 +888,16 @@ def _layout_usecase_candidate_search(model, positions=None):
             # A longer run gives a busy actor's outermost links a clear angle past adjacent use cases.
             widened = dict(split, actor_gap=1.85)
             target.append(widened)
+            if len(model["dependencies"]) == 1:
+                # Place a dependent task near its actor's center so the side lane stays reachable.
+                dep = model["dependencies"][0]
+                centered = grouped.copy()
+                for case in (dep["from"], dep["to"]):
+                    peers = [i for i in centered if participation[i] == participation[case]]
+                    if len(peers) > 2:
+                        a, b = centered.index(case), centered.index(peers[len(peers) // 2])
+                        centered[a], centered[b] = centered[b], centered[a]
+                target.append(dict(widened, order=centered))
             if any(any(i in right for i in group) and any(i not in right for i in group)
                    for group in participation):
                 target.extend(dict(widened, shared_row_offset=offset) for offset in (0.25, 0.75))
@@ -1001,6 +1011,12 @@ def _layout_two_actor_group(model):
         return None
     private = [[index for index, actors in enumerate(participation) if actors == {actor}] for actor in (0, 1)]
     dependency_only = [index for index, actors in enumerate(participation) if not actors]
+    shared_set = set(shared)
+    between_shared = {
+        other for dep in model["dependencies"] for linked, other in (
+            (dep["from"], dep["to"]), (dep["to"], dep["from"]),
+        ) if linked in shared_set and len(participation[other]) == 1
+    }
     shared.sort(key=lambda index: -sum(index in (dep["from"], dep["to"]) for dep in model["dependencies"]))
     lane_width = max(_use_case_size(case["name"])[0] for case in cases) + 0.25
     actor_width = max(_actor_size(actor["name"])[0] for actor in model["actors"])
@@ -1021,14 +1037,24 @@ def _layout_two_actor_group(model):
             dependency_y = private_y - (max(1, *map(len, private)) - 1) * 1.1 - 1.15
             for row, index in enumerate(dependency_only):
                 positions[cases[index]["name"]] = (0.0, direction * spacing * (dependency_y - row * 1.1))
-            scene = _usecase_candidate(model, positions, route=False)
-            boundary_x, _, width, _ = scene["system"]
-            left, right = scene["actors"]
-            if left[1] + left[3] / 2 >= boundary_x or right[1] - right[3] / 2 <= boundary_x + width:
-                continue
-            rank = _finish_usecase_scene(model, scene, short_labels_first=True)
-            if not any(rank[:4]):
-                candidates.append((rank, scene))
+            layouts = [positions]
+            if between_shared:
+                centered = dict(positions)
+                for side, indices in zip((-1, 1), private):
+                    middle = [index for index in indices if index in between_shared]
+                    for row, index in enumerate(middle):
+                        y = direction * spacing * (row - (len(middle) - 1) / 2) * 1.1
+                        centered[cases[index]["name"]] = (side * lane_width, y)
+                layouts.append(centered)
+            for layout in layouts:
+                scene = _usecase_candidate(model, layout, route=False)
+                boundary_x, _, width, _ = scene["system"]
+                left, right = scene["actors"]
+                if left[1] + left[3] / 2 >= boundary_x or right[1] - right[3] / 2 <= boundary_x + width:
+                    continue
+                rank = _finish_usecase_scene(model, scene, short_labels_first=True)
+                if not any(rank[:4]):
+                    candidates.append((rank, scene))
     return min(candidates, key=lambda candidate: candidate[0])[1] if candidates else None
 
 
@@ -1067,7 +1093,9 @@ def _layout_usecase_components(model, components):
                            links=[link for _, link in links], dependencies=[dep for _, dep in deps])
         scene = _layout_two_actor_group(local_model) or _usecase_candidate(local_model, route=False)
         if any(_finish_usecase_scene(local_model, scene, short_labels_first=True)[:4]):
-            return None
+            scene = _layout_tree_component(local_model)
+            if scene is None:
+                return None
         sx, sy, sw, sh = scene["system"]
         _, top, _, local_bottom = scene["bounds"]
         dx, dy = -sx - sw / 2, bottom - min(top, sy)
@@ -1080,23 +1108,108 @@ def _layout_usecase_components(model, components):
             combined["paths"][index] = [(x + dx, y + dy) for x, y in path]
         for (index, _), dep in zip(deps, scene["dep_paths"]):
             combined["dep_paths"][index] = dict(dep, points=[(x + dx, y + dy) for x, y in dep["points"]])
+    # Align actors with the common boundary and recompute ports after packing.
     if any(abs(x) - w / 2 <= width / 2 for _, x, _, w, _ in combined["actors"]):
-        return None
+        positions = {case["name"]: box[:2] for case, box in zip(model["use_cases"], combined["use_cases"])}
+        for index, x, y, w, _ in combined["actors"]:
+            distance = max(abs(x), width / 2 + w / 2 + 1.05)
+            positions[model["actors"][index]["name"]] = (math.copysign(distance, x), y)
+        return _usecase_candidate(model, positions, route=False)
     combined["system"] = (-width / 2, 0.0, width, bottom)
     return combined
 
 
+def _layout_tree_component(model):
+    """Place sibling subtrees in separate row spans and leaf actors outside the boundary."""
+    actors, cases = model["actors"], model["use_cases"]
+    offset = len(actors)
+    graph = nx.Graph()
+    graph.add_edges_from((link["actor"], offset + link["use_case"]) for link in model["links"])
+    graph.add_edges_from((offset + d["from"], offset + d["to"]) for d in model["dependencies"])
+    if not nx.is_tree(graph):
+        return None
+    column = max(_use_case_size(case["name"])[0] for case in cases) + 1.6
+    for root in sorted(range(offset), key=lambda i: -graph.degree(i)):
+        positions = {}
+        row = 0
+
+        def place(node, parent, depth):
+            nonlocal row
+            children = sorted(n for n in graph[node] if n != parent)
+            if children:
+                centers = [place(n, node, depth + 1) for n in children]
+                y = (centers[0] + centers[-1]) / 2
+            else:
+                y = row * 1.6
+                row += 1
+            name = actors[node]["name"] if node < offset else cases[node - offset]["name"]
+            positions[name] = (depth * column, y)
+            return y
+
+        place(root, None, 0)
+        right = max(positions[c["name"]][0] + _use_case_size(c["name"])[0] / 2 for c in cases) + 2
+        for index, actor in enumerate(actors):
+            if index != root:
+                name = actor["name"]
+                positions[name] = (right + _actor_size(name)[0] / 2, positions[name][1])
+        scene = _usecase_candidate(model, positions, route=False)
+        if not any(_finish_usecase_scene(model, scene, short_labels_first=True)[:4]):
+            return scene
+    return None
+
+
 def layout_usecase(model, positions=None):
-    best = _layout_usecase_candidate_search(model, positions)
-    if positions or not any(best["useCaseQuality"].values()):
+    if positions:
+        return _layout_usecase_candidate_search(model, positions)
+    actors, cases = model["actors"], model["use_cases"]
+    associations = [0] * len(actors)
+    for link in model["links"]:
+        associations[link["actor"]] += 1
+    actor_order = sorted(range(len(actors)), key=lambda i: (actors[i]["kind"], associations[i], actors[i]["name"]))
+    actor_index = {original: i for i, original in enumerate(actor_order)}
+    participants = [[] for _ in cases]
+    degree = [0] * len(cases)
+    for link in model["links"]:
+        participants[link["use_case"]].append(actor_index[link["actor"]])
+    for dep in model["dependencies"]:
+        degree[dep["from"]] += 1
+        degree[dep["to"]] += 1
+    case_order = sorted(range(len(cases)), key=lambda i: (
+        -len(participants[i]), sorted(participants[i]), -degree[i], cases[i]["name"]))
+    case_index = {original: i for i, original in enumerate(case_order)}
+    links = [dict(link, actor=actor_index[link["actor"]], use_case=case_index[link["use_case"]])
+             for link in model["links"]]
+    deps = [{**dep, "from": case_index[dep["from"]], "to": case_index[dep["to"]]} for dep in model["dependencies"]]
+    link_order = sorted(range(len(links)), key=lambda i: (links[i]["actor"], links[i]["use_case"]))
+    dep_order = sorted(range(len(deps)), key=lambda i: (deps[i]["from"], deps[i]["to"], deps[i]["kind"]))
+    ordered = dict(model, actors=[actors[i] for i in actor_order], use_cases=[cases[i] for i in case_order],
+                   links=[links[i] for i in link_order], dependencies=[deps[i] for i in dep_order])
+    scene = _layout_automatic_usecase(ordered)
+    # The editor and pinned dependency labels address records in their original order.
+    scene["actors"] = sorted((actor_order[i], *box) for i, *box in scene["actors"])
+    for key, order in (("use_cases", case_order), ("paths", link_order), ("dep_paths", dep_order)):
+        values = scene[key].copy()
+        for i, original in enumerate(order):
+            scene[key][original] = values[i]
+    return scene
+
+
+def _layout_automatic_usecase(model):
+    best = _layout_usecase_candidate_search(model)
+    conflicts = any(best["useCaseQuality"].values())
+    bends = sum(er._path_bends(path) for path in best["paths"])
+    bends += sum(er._path_bends(dep["points"]) for dep in best["dep_paths"])
+    if not conflicts and not bends:
         return best
     components = _usecase_components(model)
     if len(components) > 1:
         candidate = _layout_usecase_components(model, components)
     else:
         candidate = _layout_two_actor_group(model)
-    if candidate and not any(_finish_usecase_scene(model, candidate, short_labels_first=True)[:4]):
-        return candidate
+    if candidate:
+        rank = _finish_usecase_scene(model, candidate, short_labels_first=True)
+        if not any(rank[:4]) and (conflicts or rank[4] < bends):
+            return candidate
     return best
 
 
@@ -1120,7 +1233,7 @@ def _near_dependency(lines, dependency):
                    for t in (0.25, 0.5, 0.75)) >= 2 for x0, y0, x1, y1 in lines for dep in dependency)
 
 
-def _route_usecase_paths(paths, endpoints, shapes, obstacles, deadline, *, refine=False):
+def _route_usecase_paths(paths, endpoints, shapes, obstacles, *, refine=False):
     paths = list(paths)
     routes = [er._path_segments(path) for path in paths]
     order = range(len(endpoints))
@@ -1136,8 +1249,6 @@ def _route_usecase_paths(paths, endpoints, shapes, obstacles, deadline, *, refin
 
         order = sorted(order, key=priority, reverse=True)
     for i in order:
-        if time.monotonic() >= deadline:
-            break
         start, source, target = endpoints[i]
         end = target[:2]
         if start == end:
@@ -1154,11 +1265,15 @@ def _route_usecase_paths(paths, endpoints, shapes, obstacles, deadline, *, refin
             continue
         baseline = best
         best_rank = (*best, math.inf)
-        # Reserve time for other obstructed edges on dense diagrams.
-        edge_deadline = min(deadline, time.monotonic() + 0.07) if refine else deadline
-        for points in er._detour_candidates(start, end, shapes):
-            if time.monotonic() >= edge_deadline:
-                break
+        # Bound geometry work independently of machine speed. The worker enforces the wall-clock limit.
+        workload = len(routes) + len(obstacles)
+        limit = 360 if workload <= 20 else max(24, 5400 // (workload * workload))
+        candidates = er._detour_candidates(start, end, shapes)
+        if limit < 68:
+            # Sample short offsets and obstacle corners even when the budget is small.
+            offsets = list(islice(candidates, 20))
+            candidates = chain(offsets[:4], islice(candidates, limit - 4))
+        for points in islice(candidates, limit):
             if points[-2] == end or points[1] == start:
                 continue
             first = start if source is None else er._edge_port(start, points[1], source)
@@ -1182,14 +1297,14 @@ def _route_usecase_paths(paths, endpoints, shapes, obstacles, deadline, *, refin
 def _route_actor_links(paths, endpoints, shapes, dependencies):
     dep_routes = [er._path_segments(dep["points"]) for dep in dependencies]
     return _route_usecase_paths(paths, [(start, None, target) for start, target in endpoints], shapes,
-                                dep_routes, time.monotonic() + 0.8)
+                                dep_routes)
 
 
 def _route_usecase_dependencies(scene, model, *, refine=False):
     shapes = [(*box, "a", i) for i, box in enumerate(scene["use_cases"])]
     endpoints = [(shapes[dep["from"]][:2], shapes[dep["from"]], shapes[dep["to"]]) for dep in model["dependencies"]]
     paths = _route_usecase_paths([dep["points"] for dep in scene["dep_paths"]], endpoints, shapes,
-                                  [er._path_segments(path) for path in scene["paths"]], time.monotonic() + 0.8,
+                                  [er._path_segments(path) for path in scene["paths"]],
                                   refine=refine)
     return dict(scene, dep_paths=[dict(dep, points=path) for dep, path in zip(scene["dep_paths"], paths)])
 
@@ -1199,7 +1314,7 @@ def _refine_usecase_routes(scene, model):
     endpoints = [(path[0], None, shapes[link["use_case"]]) for path, link in zip(scene["paths"], model["links"])]
     dependencies = [er._path_segments(dep["points"]) for dep in scene["dep_paths"]]
     paths = _route_usecase_paths(scene["paths"], endpoints, shapes, dependencies,
-                                time.monotonic() + 0.8, refine=True)
+                                refine=True)
     return _route_usecase_dependencies(dict(scene, paths=paths), model, refine=True)
 
 

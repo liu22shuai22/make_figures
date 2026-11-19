@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import BrandMark from './components/BrandMark'
 import UsageChart from './components/UsageChart'
 import UsageVolume from './components/UsageVolume'
-import { buildSeries, clockTime, number, tokens, type Usage } from './usage'
+import { buildSeries, clockTime, number, tokens, type Usage, type UsageChannel } from './usage'
 import { useLocale } from './LocaleContext'
 import type { AppCopy } from './appLocale'
 
@@ -73,6 +73,17 @@ export default function TokenUsage({ onBack }: Props) {
   const todayShareOfTotal = usage && tokens(usage.total) > 0
     ? Math.min(100, Math.round((tokens(usage.today) / tokens(usage.total)) * 100))
     : 0
+  const channels = [...(usage?.channels ?? [])].sort((a, b) => {
+    // Keep providers above the pre-upgrade bucket even if the API order changes.
+    const legacyRank = (id: string) => (id === '_legacy' ? 1 : 0)
+    const rank = legacyRank(a.id) - legacyRank(b.id)
+    if (rank !== 0) return rank
+    return tokens(b) - tokens(a)
+  })
+  // Share bars compare within the channel list (same 30-day window), not lifetime total.
+  const channelWindowTokens = channels.reduce((sum, item) => sum + tokens(item), 0)
+  const hasLegacy = channels.some((item) => item.id === '_legacy')
+  const hasProviderSplit = channels.some((item) => item.id !== '_legacy')
 
   return (
     <div className="app">
@@ -208,6 +219,37 @@ export default function TokenUsage({ onBack }: Props) {
               )}
             </section>
 
+            {hasCalls && (
+              <section
+                className={'usage-section usage-channel-section' + (hasProviderSplit ? ' is-split' : '')}
+                aria-labelledby="usage-channel-title"
+              >
+                <div className="usage-section-head">
+                  <div>
+                    <h2 id="usage-channel-title">{u.byChannel}</h2>
+                    <p className="usage-story">
+                      {hasProviderSplit ? u.splitReady + ' · ' + u.byChannelHint : u.byChannelHint}
+                    </p>
+                  </div>
+                </div>
+                {hasLegacy && (
+                  <p className="usage-channel-note" data-testid="usage-legacy-note">
+                    {u.legacyHint}
+                  </p>
+                )}
+                <div className="usage-channel-list" data-testid="usage-channels">
+                  {channels.map((channel) => (
+                    <ChannelCard
+                      key={channel.id}
+                      channel={channel}
+                      totalTokens={channelWindowTokens}
+                      copy={u}
+                    />
+                  ))}
+                </div>
+              </section>
+            )}
+
             <section className="usage-section" aria-labelledby="usage-trend-title">
               <div className="usage-section-head">
                 <div>
@@ -281,6 +323,72 @@ export default function TokenUsage({ onBack }: Props) {
         )}
       </main>
     </div>
+  )
+}
+
+function ChannelCard({
+  channel,
+  totalTokens,
+  copy,
+}: {
+  channel: UsageChannel
+  totalTokens: number
+  copy: AppCopy['usage']
+}) {
+  const amount = tokens(channel)
+  const sharePct = totalTokens > 0 ? (amount / totalTokens) * 100 : 0
+  const shareLabel =
+    totalTokens <= 0 || amount <= 0
+      ? ''
+      : sharePct < 1
+        ? `<1% ${copy.channelShare}`
+        : `${Math.min(100, Math.round(sharePct))}% ${copy.channelShare}`
+  const barWidth = totalTokens > 0 ? Math.max(sharePct, amount > 0 ? 2 : 0) : 0
+  const models = (channel.models ?? []).filter((item) => item.model || tokens(item) > 0 || item.calls > 0)
+
+  const legacy = channel.id === '_legacy'
+  return (
+    <article className={'usage-channel-card' + (legacy ? ' is-legacy' : '')}>
+      <header className="usage-channel-head">
+        <div>
+          <p className="usage-label">{copy.channel}</p>
+          <strong>{legacy ? copy.legacyChannel : channel.name}</strong>
+          {!legacy && channel.id && channel.id !== channel.name && (
+            <span className="usage-channel-id">{channel.id}</span>
+          )}
+        </div>
+        <div className="usage-channel-stats">
+          <b>{number(amount)}</b>
+          <span>
+            {copy.calls(number(channel.calls))}
+            {shareLabel ? ` · ${shareLabel}` : ''}
+          </span>
+        </div>
+      </header>
+      <div className="usage-channel-bar" aria-hidden="true">
+        <i style={{ width: `${Math.min(100, barWidth)}%` }} />
+      </div>
+      <p className="usage-split">
+        <span>
+          <i className="usage-dot" aria-hidden="true" />
+          {copy.input} <b>{number(channel.input_tokens)}</b>
+        </span>
+        <span>
+          <i className="usage-dot usage-dot-out" aria-hidden="true" />
+          {copy.output} <b>{number(channel.output_tokens)}</b>
+        </span>
+      </p>
+      {models.length > 0 && (
+        <ul className="usage-channel-models">
+          {models.map((item) => (
+            <li key={item.model || '_blank'}>
+              <span>{item.model || copy.noModelLabel}</span>
+              <em>{number(tokens(item))}</em>
+            </li>
+          ))}
+        </ul>
+      )}
+    </article>
   )
 }
 

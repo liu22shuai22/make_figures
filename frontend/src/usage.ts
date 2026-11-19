@@ -11,10 +11,21 @@ interface DailyUsage extends Counts {
   day: string
 }
 
+export interface UsageModel extends Counts {
+  model: string
+}
+
+export interface UsageChannel extends Counts {
+  id: string
+  name: string
+  models: UsageModel[]
+}
+
 export interface Usage {
   today: DailyUsage
   total: Counts
   daily: DailyUsage[]
+  channels?: UsageChannel[]
 }
 
 /** 补齐空日期后的单日数据，供图表直接消费 */

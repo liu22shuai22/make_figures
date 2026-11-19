@@ -75,6 +75,22 @@ class CardinalityRequest(BaseModel):
     spec: dict
 
 
+class AssistantHistoryItem(BaseModel):
+    role: Literal["user", "bot"]
+    text: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=400)]
+    band: str | None = None
+    topic: str | None = None
+
+
+class AssistantTurnRequest(BaseModel):
+    message: Annotated[str, StringConstraints(strip_whitespace=True, min_length=0, max_length=200)]
+    surface: Literal["welcome", "workbench"] = "welcome"
+    locale: Literal["zh", "en"] = "zh"
+    diagram_kind: str = "er"
+    spec: dict | None = None
+    history: list[AssistantHistoryItem] | None = None
+
+
 class AuthCredentials(BaseModel):
     username: Annotated[str, StringConstraints(strip_whitespace=True, min_length=USERNAME_MIN, max_length=USERNAME_MAX)]
     password: Annotated[str, StringConstraints(min_length=PASSWORD_MIN, max_length=PASSWORD_MAX)]
@@ -162,7 +178,10 @@ def require_render_account(authorization: Annotated[str | None, Header()] = None
 
 @app.get("/api/usage")
 def get_usage():
+    from token_usage import ensure_usage_schema
+
     try:
+        ensure_usage_schema()
         return read_usage()
     except sqlite3.Error:
         logger.exception("Could not read model token usage")
@@ -185,8 +204,9 @@ class ProviderActive(BaseModel):
 
 
 class GatewayProbeRequest(BaseModel):
-    base_url: str | None = None
+    base_url: str = ""
     api_key: str | None = None
+    id: str | None = None
 
 
 # 兼容旧前端字段名
@@ -275,14 +295,26 @@ def delete_provider(provider_id: str):
     return public_store(store)
 
 
+def _resolve_provider_api_key(raw_key: str | None, provider_id: str | None) -> str:
+    from llm_providers import load_store
+
+    key = (raw_key or "").strip()
+    if provider_id and (not key or "•" in key):
+        store = load_store()
+        found = next((item for item in store["providers"] if item["id"] == provider_id), None)
+        if found:
+            key = found.get("api_key") or ""
+    return key
+
+
 @app.post("/api/providers/probe-gateway", dependencies=[Depends(require_render_account)])
 def providers_probe_gateway(body: GatewayProbeRequest):
     from llm_providers import probe_gateway
 
-    return probe_gateway(
-        body.base_url or "http://127.0.0.1:3000/v1",
-        body.api_key or "",
-    )
+    base_url = (body.base_url or "").strip()
+    if not base_url:
+        raise HTTPException(status_code=422, detail="请先填写 Base URL")
+    return probe_gateway(base_url, _resolve_provider_api_key(body.api_key, body.id))
 
 
 @app.post("/api/providers/probe-magpie", dependencies=[Depends(require_render_account)])
@@ -290,22 +322,16 @@ def providers_probe_magpie(body: GatewayProbeRequest):
     """兼容旧路径；默认仍探测 Magpie，也可传 New API 地址。"""
     from llm_providers import probe_gateway
 
-    return probe_gateway(
-        body.base_url or "http://127.0.0.1:3425/v1",
-        body.api_key or "magpie-erflow",
-    )
+    base_url = (body.base_url or "").strip() or "http://127.0.0.1:3425/v1"
+    key = _resolve_provider_api_key(body.api_key, body.id) or "magpie-erflow"
+    return probe_gateway(base_url, key)
 
 
 @app.post("/api/providers/list-models", dependencies=[Depends(require_render_account)])
 def providers_list_models(body: ModelsProbeRequest):
-    from llm_providers import list_openai_models, load_store
+    from llm_providers import list_openai_models
 
-    key = (body.api_key or "").strip()
-    if body.id and (not key or "•" in key):
-        store = load_store()
-        found = next((item for item in store["providers"] if item["id"] == body.id), None)
-        if found:
-            key = found.get("api_key") or ""
+    key = _resolve_provider_api_key(body.api_key, body.id)
     if not key:
         raise HTTPException(status_code=422, detail="请先填写 API Key")
     try:
@@ -314,6 +340,37 @@ def providers_list_models(body: ModelsProbeRequest):
         raise HTTPException(status_code=502, detail=f"拉取模型列表失败：{type(error).__name__}") from error
     return {"models": models}
 
+
+@app.post("/api/assistant/turn")
+def assistant_turn(body: AssistantTurnRequest, authorization: str | None = Header(default=None)):
+    """One turn on the assistant execution plane (FAQ / refuse / tools)."""
+    from assistant import run_turn
+
+    authenticated = False
+    token = bearer_token(authorization)
+    if token:
+        try:
+            session_username(token)
+            authenticated = True
+        except AuthError:
+            authenticated = False
+
+    if body.spec is not None and len(render_request_body(body.spec, "png")) > RENDER_REQUEST_LIMIT:
+        raise HTTPException(413, "规格太大")
+
+    # Cardinality tool acquires generate_slot itself; FAQ / model-router stay non-blocking here.
+    history = None
+    if body.history:
+        history = [item.model_dump() for item in body.history[-8:]]
+    return run_turn(
+        body.message,
+        surface=body.surface,
+        locale=body.locale,
+        diagram_kind=body.diagram_kind,
+        spec=body.spec,
+        authenticated=authenticated,
+        history=history,
+    ).to_dict()
 
 @app.post("/api/assistant/review", dependencies=[Depends(require_render_account)])
 def assistant_review(body: ReviewRequest):
@@ -403,7 +460,7 @@ def generate(request: GenerateRequest):
                                   entity_limit=WEB_MAX_ENTITIES, relation_limit=WEB_MAX_RELATIONS,
                                   generation_rules=WEB_GENERATION_RULES, on_usage=record_usage)
     except LLMConfigurationError:
-        raise HTTPException(status_code=503, detail="服务端尚未配置可用的大模型，请检查模型和 API Key") from None
+        raise HTTPException(status_code=503, detail="未配置可用的大模型，请到 API 平台接入并启用渠道") from None
     except LLMTimeoutError as error:
         logger.warning("Model generation timed out: %s", error)
         raise HTTPException(status_code=504, detail=str(error)) from None
@@ -435,7 +492,7 @@ def generate_usecase(request: GenerateRequest):
         if len(json.dumps({"spec": public}, ensure_ascii=False).encode("utf-8")) > RENDER_REQUEST_LIMIT:
             raise SpecSizeError("JSON 规格太大，请减少参与者或用例")
     except LLMConfigurationError:
-        raise HTTPException(status_code=503, detail="服务端尚未配置可用的大模型，请检查模型和 API Key") from None
+        raise HTTPException(status_code=503, detail="未配置可用的大模型，请到 API 平台接入并启用渠道") from None
     except LLMTimeoutError as error:
         logger.warning("Use-case generation timed out: %s", error)
         raise HTTPException(status_code=504, detail=str(error)) from None

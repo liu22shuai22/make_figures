@@ -48,6 +48,66 @@ export interface ModelReview {
   status: 'local'
 }
 
+export type AssistantBand = 'local_faq' | 'product_tool' | 'refuse' | 'open_review' | 'web_search'
+
+export interface AssistantTurnResult {
+  band: AssistantBand
+  messages: Array<{ role: 'bot'; text: string }>
+  actions: Array<{ type: string }>
+  cardinality: { choices: CardinalityChoice[]; model: string } | null
+  trace?: Record<string, unknown>
+}
+
+export async function assistantTurn(input: {
+  message: string
+  surface: 'welcome' | 'workbench'
+  locale: 'zh' | 'en'
+  diagram_kind?: string
+  spec?: JsonSpec | null
+  token?: string
+  history?: Array<{ role: 'user' | 'bot'; text: string; band?: string; topic?: string }>
+}): Promise<AssistantTurnResult> {
+  const result = await postJson(
+    '/api/assistant/turn',
+    {
+      message: input.message,
+      surface: input.surface,
+      locale: input.locale,
+      diagram_kind: input.diagram_kind ?? 'er',
+      spec: input.spec ?? null,
+      history: input.history ?? [],
+    },
+    {
+      token: input.token,
+      timeoutMs: 32_000,
+      timeoutMessage: '助手响应超时，请稍后重试。',
+    },
+  )
+  if (!isOk(result.status)) {
+    const detail =
+      result.status === 404
+        ? '当前后端缺少助手执行平面接口，请重启后端后再试。'
+        : detailToText(detailOf(result.data)) || '助手暂时不可用。'
+    throw new ApiError(detail, 'http', result.status)
+  }
+  const body = result.data as AssistantTurnResult | null
+  if (
+    !body ||
+    !['local_faq', 'product_tool', 'refuse', 'open_review', 'web_search'].includes(body.band) ||
+    !Array.isArray(body.messages) ||
+    body.messages.some((item) => !item || item.role !== 'bot' || typeof item.text !== 'string')
+  ) {
+    throw new ApiError('助手未返回有效结果。', 'shape')
+  }
+  return {
+    band: body.band,
+    messages: body.messages,
+    actions: Array.isArray(body.actions) ? body.actions : [],
+    cardinality: body.cardinality ?? null,
+    trace: body.trace,
+  }
+}
+
 export async function suggestCardinality(text: string, spec: JsonSpec, token: string): Promise<{ choices: CardinalityChoice[]; model: string }> {
   const result = await postJson('/api/assistant/cardinality', { text, spec }, {
     token, timeoutMs: 32_000, timeoutMessage: '理解修改要求超时，请稍后重试。',
@@ -118,16 +178,18 @@ export async function reviewSpec(spec: JsonSpec, token: string): Promise<ModelRe
 async function postJson(
   path: string,
   payload: unknown,
-  options: { timeoutMs: number; timeoutMessage: string; token: string },
+  options: { timeoutMs: number; timeoutMessage: string; token?: string },
 ): Promise<RawResponse> {
   const controller = new AbortController()
   const timer = window.setTimeout(() => controller.abort(), options.timeoutMs)
   try {
     let response: Response
     try {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+      if (options.token) headers.Authorization = `Bearer ${options.token}`
       response = await fetch(path, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${options.token}` },
+        headers,
         body: JSON.stringify(payload),
         signal: controller.signal,
       })

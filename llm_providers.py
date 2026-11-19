@@ -1,11 +1,12 @@
 """本机大模型渠道配置（New API 风格）：统一接入各类 OpenAI / Anthropic 兼容接口。
 
 参考 QuantumNous/new-api：先配渠道（供应商 + Key + 模型），再让 ERFlow 走当前启用项。
-配置写在 llm.local.json，不要提交。优先级高于环境变量。
+配置写在 llm.local.json，不要提交。Web 出图/生成以 API 平台启用项为准。
 """
 from __future__ import annotations
 
 import json
+import os
 import secrets
 import urllib.error
 import urllib.request
@@ -17,6 +18,14 @@ from urllib.parse import urlsplit
 CONFIG_PATH = Path(__file__).with_name("llm.local.json")
 BUNDLE_FORMAT = "erflow-providers"
 BUNDLE_VERSION = 1
+LLM_ENV_KEYS = (
+    "LLM_PROVIDER",
+    "LLM_MODEL",
+    "LLM_API_KEY",
+    "LLM_BASE_URL",
+    "ANTHROPIC_API_KEY",
+    "OPENAI_API_KEY",
+)
 
 # 预设对齐 New API 常见渠道：https://github.com/QuantumNous/new-api
 PRESETS: dict[str, dict[str, str]] = {
@@ -463,13 +472,22 @@ def import_bundle(payload: Any, *, mode: str = "merge") -> dict:
     return public_store(store)
 
 
-def apply_active_to_environ() -> None:
-    """把当前启用的供应商写进环境变量，供 er_generator.llm_settings 读取。"""
-    import os
+def clear_llm_environ() -> None:
+    """Drop process LLM credentials so shell / old start scripts cannot bypass API 平台."""
+    for key in LLM_ENV_KEYS:
+        os.environ.pop(key, None)
 
+
+def apply_active_to_environ() -> None:
+    """Sync process env from llm.local.json for er_generator.llm_settings.
+
+    Active ready provider wins. Otherwise clear LLM_* so stale env cannot serve traffic.
+    """
     entry = active_provider()
     if not entry or not _text(entry.get("api_key")) or not _text(entry.get("model")):
+        clear_llm_environ()
         return
+    clear_llm_environ()
     os.environ["LLM_PROVIDER"] = entry["kind"]
     os.environ["LLM_MODEL"] = entry["model"]
     os.environ["LLM_API_KEY"] = entry["api_key"]
@@ -477,13 +495,9 @@ def apply_active_to_environ() -> None:
         os.environ["ANTHROPIC_API_KEY"] = entry["api_key"]
         if entry.get("base_url"):
             os.environ["LLM_BASE_URL"] = entry["base_url"]
-        else:
-            os.environ.pop("LLM_BASE_URL", None)
     else:
         if entry.get("base_url"):
             os.environ["LLM_BASE_URL"] = entry["base_url"]
-        else:
-            os.environ.pop("LLM_BASE_URL", None)
 
 
 def _http_json(url: str, headers: dict, timeout: float = 8) -> Any:
@@ -493,16 +507,24 @@ def _http_json(url: str, headers: dict, timeout: float = 8) -> Any:
 
 
 def probe_gateway(
-    base_url: str = "http://127.0.0.1:3000/v1",
+    base_url: str,
     api_key: str = "",
 ) -> dict:
-    """探测 New API / Magpie / 任意 OpenAI 兼容网关的 /v1/models。"""
-    root = base_url.rstrip("/")
-    if root.endswith("/v1"):
-        root = root[:-3]
-    models_url = root + "/v1/models"
+    """探测任意 OpenAI 兼容接口的 /models（含 New API / Magpie / 云厂商）。"""
+    requested = _text(base_url).rstrip("/")
+    if not requested:
+        return {
+            "ok": False,
+            "hello": None,
+            "models": [],
+            "error": "请先填写 Base URL。",
+            "base_url": "",
+        }
+    endpoint = requested if requested.endswith("/v1") else requested + "/v1"
+    root = endpoint[:-3]
+    models_url = endpoint + "/models"
     headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
-    # Magpie 可选 hello；New API 没有该接口，失败可忽略
+    # Magpie 可选 hello；多数云厂商没有该接口，失败可忽略
     hello = None
     try:
         hello = _http_json(root + "/api/hello", {}, timeout=2)
@@ -529,21 +551,21 @@ def probe_gateway(
             "ok": False,
             "hello": hello,
             "models": [],
-            "error": f"无法读取网关模型列表：{type(error).__name__}。请确认 New API / 兼容网关已启动，且 Base URL、令牌正确。",
-            "base_url": root + "/v1",
+            "error": f"无法读取模型列表：{type(error).__name__}。请确认 Base URL 与 API Key 正确，服务可访问。",
+            "base_url": requested,
         }
     return {
         "ok": True,
         "hello": hello,
         "models": models,
-        "base_url": root + "/v1",
-        "error": None if models else "网关已连通，但还没有可用模型。请先在 New API 控制台添加渠道并启用模型。",
+        "base_url": requested,
+        "error": None if models else "接口已连通，但还没有返回可用模型。",
     }
 
 
-def probe_magpie(base_url: str = "http://127.0.0.1:3425", api_key: str = "magpie-erflow") -> dict:
+def probe_magpie(base_url: str = "http://127.0.0.1:3425/v1", api_key: str = "magpie-erflow") -> dict:
     """兼容旧接口；内部走通用网关探测。"""
-    return probe_gateway(base_url=base_url, api_key=api_key or "magpie-erflow")
+    return probe_gateway(base_url or "http://127.0.0.1:3425/v1", api_key or "magpie-erflow")
 
 
 def list_openai_models(base_url: str, api_key: str) -> list[dict]:

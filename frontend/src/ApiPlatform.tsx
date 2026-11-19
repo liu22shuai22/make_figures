@@ -86,6 +86,109 @@ function hostOf(url: string, empty = '') {
   }
 }
 
+type CustomEndpoint = {
+  host: string
+  name: string
+  /** Recommended Base URL filled by default */
+  base_url: string
+  /** Page-like path we rewrote away from, e.g. /pricing */
+  rewritten_from?: string
+  /** Original non-API path kept only if user insists */
+  original_base_url?: string
+}
+
+/** Marketing / console paths that are not OpenAI-compatible API roots */
+const PAGE_PATH_SEGMENTS = new Set([
+  'pricing',
+  'price',
+  'docs',
+  'documentation',
+  'doc',
+  'console',
+  'dashboard',
+  'login',
+  'signin',
+  'signup',
+  'register',
+  'billing',
+  'plans',
+  'account',
+  'user',
+  'admin',
+  'status',
+  'blog',
+  'help',
+  'support',
+])
+
+function pathFirstSegment(path: string) {
+  return path.replace(/^\//, '').split('/')[0]?.toLowerCase() || ''
+}
+
+function isPageLikePath(path: string) {
+  if (!path || path === '/') return false
+  return PAGE_PATH_SEGMENTS.has(pathFirstSegment(path))
+}
+
+/** 搜索框里贴域名 / URL 时，解析成可保存的 OpenAI 兼容 Base URL */
+function parseCustomEndpoint(raw: string): CustomEndpoint | null {
+  const q = raw.trim()
+  if (q.length < 4) return null
+  let input = q
+  if (!/^https?:\/\//i.test(input)) {
+    if (!/^(localhost|127(?:\.\d+){3}|[\w.-]+\.[\w.-]+)(:\d+)?(\/.*)?$/i.test(input)) return null
+    const local = /^(localhost|127(?:\.\d+){3})(:\d+)?(\/|$)/i.test(input)
+    input = `${local ? 'http' : 'https'}://${input}`
+  }
+  try {
+    const url = new URL(input)
+    if (!url.hostname) return null
+    const origin = `${url.protocol}//${url.host}`
+    const path = url.pathname.replace(/\/$/, '') || ''
+    const host = url.host
+    const name = url.hostname
+    const canonical = `${origin}/v1`
+
+    // Genuine API root: .../v1 or .../prefix/v1 (but not /pricing/v1)
+    const apiRoot = path.match(/^(.*\/v\d+)(?:\/|$)/i)?.[1]
+    if (apiRoot) {
+      const prefix = apiRoot.replace(/\/v\d+$/i, '') || '/'
+      if (!isPageLikePath(prefix) && !isPageLikePath(apiRoot)) {
+        return { host, name, base_url: `${origin}${apiRoot}` }
+      }
+      return {
+        host,
+        name,
+        base_url: canonical,
+        rewritten_from: path,
+        original_base_url: `${origin}${path}`,
+      }
+    }
+
+    if (!path) {
+      return { host, name, base_url: canonical }
+    }
+
+    // /pricing、/docs 等：默认建议域名/v1，并允许仍用原路径
+    if (isPageLikePath(path)) {
+      return {
+        host,
+        name,
+        base_url: canonical,
+        rewritten_from: path,
+        original_base_url: `${origin}${path}`,
+      }
+    }
+
+    // Other prefixes (e.g. /openai): keep prefix and ensure /vN suffix
+    let kept = `${origin}${path}`
+    if (!/\/v\d+$/i.test(kept)) kept += '/v1'
+    return { host, name, base_url: kept }
+  } catch {
+    return null
+  }
+}
+
 function formFromPreset(preset: ProviderPreset) {
   return {
     id: '',
@@ -96,6 +199,22 @@ function formFromPreset(preset: ProviderPreset) {
     model: preset.model,
     preset: preset.id,
   }
+}
+
+function formFromProvider(item: ProviderPublic) {
+  return {
+    id: item.id,
+    name: item.name,
+    kind: item.kind,
+    base_url: item.base_url,
+    api_key: item.api_key_masked,
+    model: item.model,
+    preset: item.preset,
+  }
+}
+
+function nextProvider(providers: ProviderPublic[], activeId: string | null | undefined) {
+  return providers.find((item) => item.id === activeId) || null
 }
 
 /** 各渠道品牌微色：只作接线高亮，不改整页主题 */
@@ -288,6 +407,8 @@ export default function ApiPlatform({ onBack, onLogin, token }: Props) {
     [railGroups],
   )
 
+  const customEndpoint = useMemo(() => parseCustomEndpoint(railQuery), [railQuery])
+
   const scopeCounts = useMemo(() => {
     const counts: Record<RailScope, number> = {
       all: quickPresets.length,
@@ -463,16 +584,26 @@ export default function ApiPlatform({ onBack, onLogin, token }: Props) {
       } catch {
         throw new Error(a.badJson)
       }
-      const mode: 'merge' | 'replace' =
-        providers.length === 0
-          ? 'replace'
-          : window.confirm(a.confirmImportMode)
-            ? 'merge'
-            : 'replace'
+      let mode: 'merge' | 'replace' = 'replace'
+      if (providers.length > 0) {
+        if (window.confirm(a.confirmImportMerge)) {
+          mode = 'merge'
+        } else if (window.confirm(a.confirmImportReplace)) {
+          mode = 'replace'
+        } else {
+          setNotice(a.importCancelled)
+          return
+        }
+      }
       const next = await importProviders(token, bundle, mode)
       setPayload(next)
       setModels([])
       clearProbeEcho()
+      const imported =
+        next.providers.find((item) => item.id === next.active_id) || next.providers[0]
+      setForm(imported ? formFromProvider(imported) : EMPTY_FORM)
+      setAddOpen(false)
+      setShowKey(false)
       setNotice(a.imported(mode, next.providers.length))
       sparkWire()
     } catch (err) {
@@ -489,9 +620,15 @@ export default function ApiPlatform({ onBack, onLogin, token }: Props) {
   useEffect(() => {
     if (!payload?.presets?.length) return
     setForm((current) => {
-      if (current.id || current.name || current.base_url) return current
+      // Keep an in-progress new wire or an open edit; only seed an empty form.
+      if (current.id || current.name || current.base_url || current.api_key || current.model) {
+        return current
+      }
+      const activeItem =
+        nextProvider(payload.providers, payload.active_id) || payload.providers[0]
+      if (activeItem) return formFromProvider(activeItem)
       const preset = payload.presets.find((item) => item.id === 'newapi') || payload.presets[0]
-      return formFromPreset(preset)
+      return preset ? formFromPreset(preset) : current
     })
   }, [payload])
 
@@ -506,6 +643,31 @@ export default function ApiPlatform({ onBack, onLogin, token }: Props) {
     sparkWire()
   }
 
+  const applyCustomEndpoint = (endpoint: CustomEndpoint, useOriginal = false) => {
+    const base_url =
+      useOriginal && endpoint.original_base_url ? endpoint.original_base_url : endpoint.base_url
+    setForm({
+      id: '',
+      name: endpoint.name,
+      kind: 'openai',
+      base_url,
+      api_key: '',
+      model: '',
+      preset: 'custom',
+    })
+    setModels([])
+    setNotice(
+      !useOriginal && endpoint.rewritten_from
+        ? a.customPagePathReady(endpoint.rewritten_from, base_url)
+        : a.customEndpointReady(endpoint.host),
+    )
+    setError(null)
+    setShowKey(false)
+    clearProbeEcho()
+    if (providers.length) setAddOpen(true)
+    sparkWire()
+  }
+
   const onPresetChange = (presetId: string) => {
     const preset = (payload?.presets || []).find((item) => item.id === presetId)
     if (preset) applyPreset(preset)
@@ -513,15 +675,7 @@ export default function ApiPlatform({ onBack, onLogin, token }: Props) {
   }
 
   const editProvider = (item: ProviderPublic) => {
-    setForm({
-      id: item.id,
-      name: item.name,
-      kind: item.kind,
-      base_url: item.base_url,
-      api_key: item.api_key_masked,
-      model: item.model,
-      preset: item.preset,
-    })
+    setForm(formFromProvider(item))
     setModels([])
     setNotice(null)
     setError(null)
@@ -533,24 +687,33 @@ export default function ApiPlatform({ onBack, onLogin, token }: Props) {
   const onSubmit = async (event: FormEvent) => {
     event.preventDefault()
     if (!token) return
+    const editingId = form.id
+    // New channel becomes active; edits keep the current active channel unless none exists.
+    const activate = !editingId
     setBusy(true)
     setError(null)
     try {
       const next = await saveProvider(token, {
-        id: form.id || undefined,
+        id: editingId || undefined,
         name: form.name.trim() || a.unnamedChannel,
         kind: form.kind,
         base_url: form.base_url.trim(),
         api_key: form.api_key,
         model: form.model.trim(),
         preset: form.preset,
-        activate: true,
+        activate,
       })
       setPayload(next)
-      setNotice(a.savedConnected)
+      const saved =
+        (editingId && next.providers.find((item) => item.id === editingId)) ||
+        nextProvider(next.providers, next.active_id) ||
+        next.providers[next.providers.length - 1]
+      if (saved) {
+        setForm(formFromProvider(saved))
+        setAddOpen(false)
+      }
+      setNotice(activate ? a.savedConnected : a.savedOnly)
       sparkWire()
-      const preset = next.presets.find((item) => item.id === 'newapi') || next.presets[0]
-      setForm(preset ? formFromPreset(preset) : EMPTY_FORM)
       setModels([])
       setShowKey(false)
     } catch (err) {
@@ -565,7 +728,16 @@ export default function ApiPlatform({ onBack, onLogin, token }: Props) {
     setBusy(true)
     setError(null)
     try {
-      setPayload(await activateProvider(token, id))
+      const next = await activateProvider(token, id)
+      setPayload(next)
+      const item = next.providers.find((entry) => entry.id === id)
+      if (item) {
+        setForm(formFromProvider(item))
+        setAddOpen(false)
+        setModels([])
+        setShowKey(false)
+        clearProbeEcho()
+      }
       setNotice(a.activated)
       sparkWire()
     } catch (err) {
@@ -584,8 +756,18 @@ export default function ApiPlatform({ onBack, onLogin, token }: Props) {
       const next = await removeProvider(token, id)
       setPayload(next)
       if (form.id === id) {
-        const preset = next.presets.find((item) => item.id === 'newapi') || next.presets[0]
-        setForm(preset ? formFromPreset(preset) : EMPTY_FORM)
+        const fallback =
+          nextProvider(next.providers, next.active_id) || next.providers[0]
+        if (fallback) {
+          setForm(formFromProvider(fallback))
+          setAddOpen(false)
+        } else {
+          const preset = next.presets.find((item) => item.id === 'newapi') || next.presets[0]
+          setForm(preset ? formFromPreset(preset) : EMPTY_FORM)
+        }
+        setModels([])
+        setShowKey(false)
+        clearProbeEcho()
       }
       setNotice(a.deleted)
     } catch (err) {
@@ -597,6 +779,11 @@ export default function ApiPlatform({ onBack, onLogin, token }: Props) {
 
   const onProbeGateway = async () => {
     if (!token) return
+    const baseUrl = form.base_url.trim()
+    if (!baseUrl) {
+      setError(a.probeNeedUrl)
+      return
+    }
     setBusy(true)
     setProbing(true)
     setError(null)
@@ -604,15 +791,12 @@ export default function ApiPlatform({ onBack, onLogin, token }: Props) {
     window.clearTimeout(echoTimer.current)
     setProbeEcho(null)
     try {
-      const result = await probeGateway(token, form.base_url || undefined, form.api_key || undefined)
+      const result = await probeGateway(token, {
+        base_url: baseUrl,
+        api_key: form.api_key || undefined,
+        id: form.id || undefined,
+      })
       setModels(result.models)
-      setForm((current) => ({
-        ...current,
-        preset: current.preset === 'custom' || !current.preset ? 'newapi' : current.preset,
-        name: current.name || a.newApiGateway,
-        kind: 'openai',
-        base_url: result.base_url,
-      }))
       if (!result.ok) {
         const detail = result.error || a.gatewayDown
         setError(detail)
@@ -692,6 +876,39 @@ export default function ApiPlatform({ onBack, onLogin, token }: Props) {
 
   const statusClass = active?.ready ? ' is-ready' : active ? ' is-warn' : ' is-idle'
 
+  const customEndpointCard = customEndpoint ? (
+    <div className="api-rail-custom-wrap">
+      <button
+        type="button"
+        className="api-rail-custom"
+        disabled={busy}
+        onClick={() => applyCustomEndpoint(customEndpoint)}
+      >
+        <ProviderIcon id="custom" size={18} className="api-quick-logo" />
+        <span className="api-quick-text">
+          <strong>{a.useDomain}</strong>
+          <span>{customEndpoint.base_url}</span>
+          {customEndpoint.rewritten_from ? (
+            <small className="api-rail-custom-hint">
+              {a.customPagePathHint(customEndpoint.rewritten_from)}
+            </small>
+          ) : null}
+        </span>
+        <em className="api-rail-lead">{a.wireCustom}</em>
+      </button>
+      {customEndpoint.original_base_url ? (
+        <button
+          type="button"
+          className="api-rail-custom-alt"
+          disabled={busy}
+          onClick={() => applyCustomEndpoint(customEndpoint, true)}
+        >
+          {a.useOriginalPath(customEndpoint.original_base_url)}
+        </button>
+      ) : null}
+    </div>
+  ) : null
+
   return (
     <div className="app">
       <header className="topbar usage-topbar">
@@ -760,13 +977,20 @@ export default function ApiPlatform({ onBack, onLogin, token }: Props) {
 
         {guideOpen && (
           <div className="api-guide">
+            <p>{a.guideIntro}</p>
+            <ol className="api-guide-steps">
+              <li>{a.guideStep1}</li>
+              <li>{a.guideStep2}</li>
+              <li>{a.guideStep3}</li>
+            </ol>
             <p>
-              {a.guideBefore}{' '}
+              {a.guideGatewayBefore}{' '}
               <a href="https://github.com/QuantumNous/new-api" target="_blank" rel="noreferrer">
                 New API
               </a>
-              {a.guideAfter}
+              {a.guideGatewayAfter}
             </p>
+            <p>{a.guideBackup}</p>
           </div>
         )}
 
@@ -925,13 +1149,22 @@ export default function ApiPlatform({ onBack, onLogin, token }: Props) {
                           className="input api-rail-search"
                           value={railQuery}
                           onChange={(event) => setRailQuery(event.target.value)}
+                          onKeyDown={(event) => {
+                            if (event.key !== 'Enter' || !customEndpoint) return
+                            event.preventDefault()
+                            applyCustomEndpoint(customEndpoint)
+                          }}
                           placeholder={a.searchSavedPh}
                           aria-label={a.searchSavedAria}
                         />
                       </div>
 
-                      {savedRail.length === 0 ? (
+                      {customEndpointCard}
+
+                      {savedRail.length === 0 && !customEndpoint ? (
                         <p className="api-empty">{a.noSavedMatch}</p>
+                      ) : savedRail.length === 0 && customEndpoint ? (
+                        <p className="api-empty">{a.noSavedMatchCustom}</p>
                       ) : (
                         <ul>
                           {savedRail.map((item, index) => {
@@ -1028,6 +1261,11 @@ export default function ApiPlatform({ onBack, onLogin, token }: Props) {
                           className="input api-rail-search"
                           value={railQuery}
                           onChange={(event) => setRailQuery(event.target.value)}
+                          onKeyDown={(event) => {
+                            if (event.key !== 'Enter' || !customEndpoint) return
+                            event.preventDefault()
+                            applyCustomEndpoint(customEndpoint)
+                          }}
                           placeholder={a.searchPresetPh}
                           aria-label={a.searchPresetAria}
                         />
@@ -1048,6 +1286,8 @@ export default function ApiPlatform({ onBack, onLogin, token }: Props) {
                         </div>
                       </div>
 
+                      {customEndpointCard}
+
                       {selectionHidden && (
                         <button type="button" className="api-rail-recall" onClick={revealSelection}>
                           {a.recall(selectedRailScope ? scopeLabel[selectedRailScope.id] : a.all)}
@@ -1055,8 +1295,11 @@ export default function ApiPlatform({ onBack, onLogin, token }: Props) {
                         </button>
                       )}
 
-                      {railGroups.length === 0 && !selectionHidden && (
+                      {railGroups.length === 0 && !selectionHidden && !customEndpoint && (
                         <p className="api-empty">{a.noPresetMatch}</p>
+                      )}
+                      {railGroups.length === 0 && !selectionHidden && customEndpoint && (
+                        <p className="api-empty">{a.noPresetMatchCustom}</p>
                       )}
 
                       {railGroups.map((group) => (
@@ -1286,7 +1529,8 @@ export default function ApiPlatform({ onBack, onLogin, token }: Props) {
                         <button
                           type="button"
                           className={'btn' + (probing ? ' is-probing-btn' : '')}
-                          disabled={busy}
+                          disabled={busy || !form.base_url.trim()}
+                          title={form.base_url.trim() ? undefined : a.probeNeedUrl}
                           onClick={() => void onProbeGateway()}
                         >
                           {probing ? a.probingEllipsis : a.probeGateway}

@@ -3,7 +3,7 @@ import BrandMark from './BrandMark'
 import ModelAssistant, { type AssistantDraft } from './ModelAssistant'
 import { useLocale } from '../LocaleContext'
 import { buildCardinalityProposal } from '../assistantCardinality'
-import { ApiError, suggestCardinality } from '../api'
+import { ApiError, assistantTurn, type AssistantBand } from '../api'
 import { toJsonSpec } from '../spec'
 
 interface AiAssistantProps {
@@ -26,6 +26,9 @@ interface Message {
   id: string
   role: Role
   text: string
+  band?: AssistantBand
+  topic?: string
+  trace?: Record<string, unknown>
 }
 
 let messageSeq = 0
@@ -81,16 +84,41 @@ export default function AiAssistant({
     if (open && view === 'chat') inputRef.current?.focus()
   }, [open, view])
 
-  const push = (role: Role, text: string) => {
-    setMessages((prev) => [...prev, { id: nextId(), role, text }])
+  const push = (
+    role: Role,
+    text: string,
+    band?: AssistantBand,
+    extra?: { topic?: string; trace?: Record<string, unknown> },
+  ) => {
+    setMessages((prev) => [
+      ...prev,
+      { id: nextId(), role, text, band, topic: extra?.topic, trace: extra?.trace },
+    ])
   }
 
-  const replyTo = (input: string): string => {
-    const text = input.trim().toLowerCase()
-    if (!text) return a.emptyPrompt
-    const hit = a.knowledge.find((item) => item.keys.some((key) => text.includes(key.toLowerCase())))
-    if (hit) return hit.answer
-    return a.fallback
+  const historyPayload = () =>
+    messages
+      .filter((item) => item.role === 'user' || item.role === 'bot')
+      .slice(-8)
+      .map((item) => ({
+        role: item.role,
+        text: item.text.slice(0, 400),
+        band: item.band,
+        topic: item.topic,
+      }))
+
+  const traceBits = (trace?: Record<string, unknown>) => {
+    if (!trace) return []
+    const bits: string[] = []
+    if (typeof trace.tool === 'string' && trace.tool) bits.push(a.traceTool(trace.tool))
+    if (typeof trace.follow_up_of === 'string' && trace.follow_up_of) {
+      bits.push(a.traceFollowUp(trace.follow_up_of))
+    } else if (typeof trace.topic === 'string' && trace.topic) {
+      bits.push(a.traceTopic(trace.topic))
+    }
+    if (typeof trace.url === 'string' && trace.url) bits.push(a.traceSource('Wikipedia'))
+    else if (trace.fallback === 'model_brief') bits.push(a.traceSource('model'))
+    return bits
   }
 
   const selectProposal = (planned: Proposal) => {
@@ -111,43 +139,47 @@ export default function AiAssistant({
     setDraft('')
     setProposal(undefined)
     setChoices([])
-    if (a.checkIntent.test(cleaned)) {
-      setView('review')
-      if (workbench?.spec.entities.length) setCheckRequest((previous) => previous + 1)
-      return
-    }
-    const reply = replyTo(cleaned)
-    const erDraft = variant === 'workbench' && workbench?.applyCardinality ? workbench.spec : undefined
-    if (a.editIntent.test(cleaned) || /限制|只能|仅能|最多|至多|不超过|基数/.test(cleaned)
-        || (erDraft?.relations.length && reply === a.fallback)) {
-      if (!erDraft?.relations.length) {
-        push('bot', a.cardinalityNeedDraft)
-        return
+    setBusy(true)
+    try {
+      const erDraft = variant === 'workbench' && workbench?.applyCardinality ? workbench.spec : undefined
+      const turn = await assistantTurn({
+        message: cleaned,
+        surface: variant,
+        locale,
+        diagram_kind: 'er',
+        spec: erDraft ? toJsonSpec(erDraft) : null,
+        token,
+        history: historyPayload(),
+      })
+
+      if (turn.actions.some((item) => item.type === 'open_review')) {
+        setView('review')
+        if (workbench?.spec.entities.length) setCheckRequest((previous) => previous + 1)
       }
-      if (!token) {
-        push('bot', a.cardinalityLogin)
-        return
+
+      const topic =
+        typeof turn.trace?.topic === 'string'
+          ? turn.trace.topic
+          : typeof turn.trace?.title === 'string'
+            ? turn.trace.title
+            : undefined
+      for (const item of turn.messages) {
+        push('bot', item.text, turn.band, { topic, trace: turn.trace })
       }
-      setBusy(true)
-      try {
-        const suggested = await suggestCardinality(cleaned, toJsonSpec(erDraft), token)
-        const planned = suggested.choices.flatMap((choice) => buildCardinalityProposal(erDraft, choice) ?? [])
-        push('bot', a.cardinalityModelUsed(suggested.model))
+
+      const erSource = variant === 'workbench' ? workbench?.spec : undefined
+      if (turn.cardinality && erSource) {
+        const planned = turn.cardinality.choices.flatMap(
+          (choice) => buildCardinalityProposal(erSource, choice) ?? [],
+        )
         if (planned.length > 1) setChoices(planned)
         else if (planned.length === 1) selectProposal(planned[0])
-        else push('bot', a.editNotReady)
-      } catch (error) {
-        push('bot', error instanceof ApiError ? error.message : a.cardinalityFailed)
-      } finally {
-        setBusy(false)
       }
-      return
-    }
-    setBusy(true)
-    window.setTimeout(() => {
-      push('bot', reply)
+    } catch (error) {
+      push('bot', error instanceof ApiError ? error.message : a.turnFailed, 'refuse')
+    } finally {
       setBusy(false)
-    }, 380)
+    }
   }
 
   const applyProposal = async () => {
@@ -160,7 +192,7 @@ export default function AiAssistant({
     setBusy(true)
     try {
       const applied = await workbench.applyCardinality(proposal.source, proposal.draft)
-      push('bot', applied ? a.cardinalityApplied : a.cardinalityFailed)
+      push('bot', applied ? a.cardinalityApplied : a.cardinalityFailed, 'product_tool')
       if (applied) setProposal(undefined)
     } finally {
       setBusy(false)
@@ -170,6 +202,11 @@ export default function AiAssistant({
   const onSubmit = (event: FormEvent) => {
     event.preventDefault()
     void ask(draft)
+  }
+
+  const bandLabel = (band?: AssistantBand) => {
+    if (!band) return null
+    return a.bandLabel[band]
   }
 
   return (
@@ -240,7 +277,17 @@ export default function AiAssistant({
             <div className="ai-assist-messages" ref={listRef}>
               {messages.map((message) => (
                 <div key={message.id} className={'ai-assist-bubble is-' + message.role}>
-                  {message.text}
+                  {message.role === 'bot' && message.band && (
+                    <span className={'ai-assist-band is-' + message.band}>{bandLabel(message.band)}</span>
+                  )}
+                  <div className="ai-assist-text">{message.text}</div>
+                  {message.role === 'bot' && traceBits(message.trace).length > 0 && (
+                    <div className="ai-assist-trace">
+                      {traceBits(message.trace).map((bit) => (
+                        <span key={bit}>{bit}</span>
+                      ))}
+                    </div>
+                  )}
                 </div>
               ))}
               {choices.length > 0 && (

@@ -1,6 +1,7 @@
 from http.client import RemoteDisconnected
 from io import BytesIO
 import json
+import os
 from pathlib import Path
 import unittest
 from unittest.mock import patch
@@ -69,6 +70,8 @@ class GenerateTests(unittest.TestCase):
         db_path = Path(__file__).with_name(f".test-usage-{uuid4().hex}.sqlite3")
         self.addCleanup(db_path.unlink, missing_ok=True)
         self.enterContext(patch("token_usage.DB_PATH", db_path))
+        # Tests inject LLM_* via patch.dict; skip platform sync that would clear them.
+        self.enterContext(patch("llm_providers.apply_active_to_environ", lambda: None))
 
     def test_usecase_resumes_at_last_complete_compact_record(self):
         prefix = '{"title":"Library","actors":["Reader"],"useCases":["Borrow","Return"],"links":[["Reader","Borrow"]'
@@ -124,6 +127,13 @@ class GenerateTests(unittest.TestCase):
             "input_tokens": 105, "output_tokens": 37, "calls": 2, "unreported_calls": 1,
         })
         self.assertEqual(usage["daily"], [usage["today"]])
+        self.assertTrue(usage["channels"])
+        channel = usage["channels"][0]
+        self.assertEqual(channel["input_tokens"] + channel["output_tokens"], 142)
+        self.assertEqual(channel["calls"], 2)
+        self.assertEqual(channel["id"], "api.siliconflow.cn")
+        self.assertEqual(channel["name"], "硅基流动")
+        self.assertEqual(channel["models"][0]["model"], SILICONFLOW_ENV["LLM_MODEL"])
 
     def test_web_spec_accepts_twenty_four_entities_and_forty_relations(self):
         names = [f"模块{i}" for i in range(25)]
@@ -658,6 +668,57 @@ class GenerateTests(unittest.TestCase):
         for text in ("   ", "长" * 4001):
             with self.subTest(length=len(text)), self.assertRaises(ValidationError):
                 GenerateRequest(text=text)
+
+
+class UsageChannelResolveTests(unittest.TestCase):
+    def test_resolve_channel_prefers_request_host(self):
+        from token_usage import resolve_channel
+
+        channel, name, model = resolve_channel({
+            "base_url": "https://api.deepseek.com/v1",
+            "model": "deepseek-chat",
+        })
+        self.assertEqual((channel, name, model), ("api.deepseek.com", "DeepSeek", "deepseek-chat"))
+
+    def test_resolve_channel_uses_active_entry_only_when_host_or_model_matches(self):
+        from token_usage import resolve_channel
+
+        entry = {
+            "id": "p1",
+            "name": "我的 DeepSeek",
+            "preset": "deepseek",
+            "base_url": "https://api.deepseek.com/v1",
+            "model": "deepseek-chat",
+        }
+        with patch("llm_providers.active_provider", return_value=entry):
+            matched = resolve_channel({
+                "base_url": "https://api.deepseek.com/v1",
+                "model": "deepseek-chat",
+            })
+            other_host = resolve_channel({
+                "base_url": "https://api2.aigcbest.top/v1",
+                "model": "claude-opus-5-5",
+            })
+            no_host_match = resolve_channel({"model": "deepseek-chat", "provider": "openai"})
+            no_host_mismatch = resolve_channel({"model": "other", "provider": "openai"})
+
+        self.assertEqual(matched[:2], ("api.deepseek.com", "我的 DeepSeek"))
+        self.assertEqual(other_host[:2], ("api2.aigcbest.top", "api2.aigcbest.top"))
+        self.assertEqual(no_host_match[:2], ("api.deepseek.com", "我的 DeepSeek"))
+        self.assertEqual(no_host_mismatch[:2], ("openai", "openai"))
+
+
+class ProviderEnvSyncTests(unittest.TestCase):
+    def test_apply_active_clears_stale_env_when_platform_empty(self):
+        from llm_providers import apply_active_to_environ, clear_llm_environ
+
+        with patch.dict("os.environ", {**MODEL_ENV, "LLM_PROVIDER": "openai"}, clear=False), patch(
+            "llm_providers.active_provider", return_value=None
+        ):
+            apply_active_to_environ()
+            self.assertNotIn("LLM_API_KEY", os.environ)
+            self.assertNotIn("LLM_MODEL", os.environ)
+        clear_llm_environ()
 
 
 if __name__ == "__main__":

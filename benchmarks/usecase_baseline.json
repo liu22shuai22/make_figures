@@ -1,0 +1,415 @@
+{
+  "fixtureDigest": "8bddc3aaff1cb5b862e30cefe69cbac0d76f4aa9134bb84a043c026e8a81c17a",
+  "repeats": 1,
+  "environment": {
+    "system": "Windows",
+    "machine": "AMD64",
+    "python": "3.14.7",
+    "networkx": "3.7",
+    "matplotlib": "3.11.2",
+    "font": "simsun.ttc"
+  },
+  "layoutSources": {
+    "er_generator.py": "4a5c580ebc71346f1b854463d8dd09076d7c318b2226f90ea8b8299b96655e69",
+    "usecase_generator.py": "779470f8abfd9e08c53425397b7f2d07cbe7514beb06c4c538acadb29e2c3113"
+  },
+  "summary": {
+    "regression": {
+      "runs": 10,
+      "completed": 10,
+      "zeroConflicts": 8,
+      "allStraight": 7,
+      "zeroConflictsAndStraight": 6,
+      "medianSeconds": 0.12,
+      "p95Seconds": 11.8254
+    },
+    "evaluation": {
+      "runs": 4,
+      "completed": 4,
+      "zeroConflicts": 2,
+      "allStraight": 0,
+      "zeroConflictsAndStraight": 0,
+      "medianSeconds": 2.949,
+      "p95Seconds": 4.2652
+    },
+    "stress": {
+      "runs": 2,
+      "completed": 2,
+      "zeroConflicts": 0,
+      "allStraight": 0,
+      "zeroConflictsAndStraight": 0,
+      "medianSeconds": 13.2065,
+      "p95Seconds": 25.7873
+    }
+  },
+  "cases": [
+    {
+      "group": "regression",
+      "id": "library",
+      "counts": {
+        "actors": 2,
+        "use_cases": 5,
+        "links": 7,
+        "dependencies": 2
+      },
+      "graphPlanar": true,
+      "seconds": 0.0505,
+      "quality": {
+        "overlaps": 0,
+        "boxHits": 0,
+        "lineConflicts": 0,
+        "labelConflicts": 0
+      },
+      "bends": 0,
+      "bentLines": 0,
+      "width": 9.9,
+      "height": 6.38,
+      "repeat": 1
+    },
+    {
+      "group": "regression",
+      "id": "library-order-0",
+      "counts": {
+        "actors": 2,
+        "use_cases": 5,
+        "links": 7,
+        "dependencies": 2
+      },
+      "graphPlanar": true,
+      "seconds": 0.119,
+      "quality": {
+        "overlaps": 0,
+        "boxHits": 0,
+        "lineConflicts": 0,
+        "labelConflicts": 0
+      },
+      "bends": 1,
+      "bentLines": 1,
+      "width": 9.9,
+      "height": 6.38,
+      "repeat": 1
+    },
+    {
+      "group": "regression",
+      "id": "library-order-1",
+      "counts": {
+        "actors": 2,
+        "use_cases": 5,
+        "links": 7,
+        "dependencies": 2
+      },
+      "graphPlanar": true,
+      "seconds": 0.121,
+      "quality": {
+        "overlaps": 0,
+        "boxHits": 0,
+        "lineConflicts": 0,
+        "labelConflicts": 0
+      },
+      "bends": 1,
+      "bentLines": 1,
+      "width": 9.9,
+      "height": 6.38,
+      "repeat": 1
+    },
+    {
+      "group": "regression",
+      "id": "library-order-2",
+      "counts": {
+        "actors": 2,
+        "use_cases": 5,
+        "links": 7,
+        "dependencies": 2
+      },
+      "graphPlanar": true,
+      "seconds": 0.0426,
+      "quality": {
+        "overlaps": 0,
+        "boxHits": 0,
+        "lineConflicts": 0,
+        "labelConflicts": 0
+      },
+      "bends": 0,
+      "bentLines": 0,
+      "width": 9.9,
+      "height": 6.38,
+      "repeat": 1
+    },
+    {
+      "group": "regression",
+      "id": "library-order-3",
+      "counts": {
+        "actors": 2,
+        "use_cases": 5,
+        "links": 7,
+        "dependencies": 2
+      },
+      "graphPlanar": true,
+      "seconds": 0.352,
+      "quality": {
+        "overlaps": 0,
+        "boxHits": 0,
+        "lineConflicts": 1,
+        "labelConflicts": 0
+      },
+      "bends": 1,
+      "bentLines": 1,
+      "width": 9.9,
+      "height": 6.38,
+      "repeat": 1
+    },
+    {
+      "group": "regression",
+      "id": "library-order-4",
+      "counts": {
+        "actors": 2,
+        "use_cases": 5,
+        "links": 7,
+        "dependencies": 2
+      },
+      "graphPlanar": true,
+      "seconds": 0.0108,
+      "quality": {
+        "overlaps": 0,
+        "boxHits": 0,
+        "lineConflicts": 0,
+        "labelConflicts": 0
+      },
+      "bends": 0,
+      "bentLines": 0,
+      "width": 9.9,
+      "height": 6.38,
+      "repeat": 1
+    },
+    {
+      "group": "regression",
+      "id": "library-identity",
+      "counts": {
+        "actors": 2,
+        "use_cases": 4,
+        "links": 6,
+        "dependencies": 2
+      },
+      "graphPlanar": true,
+      "seconds": 0.2562,
+      "quality": {
+        "overlaps": 0,
+        "boxHits": 0,
+        "lineConflicts": 0,
+        "labelConflicts": 0
+      },
+      "bends": 0,
+      "bentLines": 0,
+      "width": 9.99,
+      "height": 4.87,
+      "repeat": 1
+    },
+    {
+      "group": "regression",
+      "id": "library-identity-order-3",
+      "counts": {
+        "actors": 2,
+        "use_cases": 4,
+        "links": 6,
+        "dependencies": 2
+      },
+      "graphPlanar": true,
+      "seconds": 0.093,
+      "quality": {
+        "overlaps": 0,
+        "boxHits": 0,
+        "lineConflicts": 0,
+        "labelConflicts": 1
+      },
+      "bends": 0,
+      "bentLines": 0,
+      "width": 7.6,
+      "height": 6.38,
+      "repeat": 1
+    },
+    {
+      "group": "regression",
+      "id": "launch-dependency-fan",
+      "counts": {
+        "actors": 8,
+        "use_cases": 18,
+        "links": 10,
+        "dependencies": 10
+      },
+      "graphPlanar": true,
+      "seconds": 6.8505,
+      "quality": {
+        "overlaps": 0,
+        "boxHits": 0,
+        "lineConflicts": 0,
+        "labelConflicts": 0
+      },
+      "bends": 0,
+      "bentLines": 0,
+      "width": 13.963,
+      "height": 11.797,
+      "repeat": 1
+    },
+    {
+      "group": "regression",
+      "id": "four-workflows",
+      "counts": {
+        "actors": 8,
+        "use_cases": 24,
+        "links": 32,
+        "dependencies": 12
+      },
+      "graphPlanar": true,
+      "seconds": 11.8254,
+      "quality": {
+        "overlaps": 0,
+        "boxHits": 0,
+        "lineConflicts": 0,
+        "labelConflicts": 0
+      },
+      "bends": 0,
+      "bentLines": 0,
+      "width": 9.85,
+      "height": 30.63,
+      "repeat": 1
+    },
+    {
+      "group": "evaluation",
+      "id": "hotel-shared-cases",
+      "counts": {
+        "actors": 3,
+        "use_cases": 8,
+        "links": 10,
+        "dependencies": 4
+      },
+      "graphPlanar": true,
+      "seconds": 3.343,
+      "quality": {
+        "overlaps": 0,
+        "boxHits": 0,
+        "lineConflicts": 1,
+        "labelConflicts": 0
+      },
+      "bends": 2,
+      "bentLines": 2,
+      "width": 11.727,
+      "height": 6.38,
+      "repeat": 1
+    },
+    {
+      "group": "evaluation",
+      "id": "hotel-shared-cases-order-3",
+      "counts": {
+        "actors": 3,
+        "use_cases": 8,
+        "links": 10,
+        "dependencies": 4
+      },
+      "graphPlanar": true,
+      "seconds": 4.2652,
+      "quality": {
+        "overlaps": 0,
+        "boxHits": 0,
+        "lineConflicts": 1,
+        "labelConflicts": 0
+      },
+      "bends": 2,
+      "bentLines": 2,
+      "width": 13.327,
+      "height": 8.72,
+      "repeat": 1
+    },
+    {
+      "group": "evaluation",
+      "id": "clinic-dependency-chain",
+      "counts": {
+        "actors": 3,
+        "use_cases": 9,
+        "links": 6,
+        "dependencies": 5
+      },
+      "graphPlanar": true,
+      "seconds": 2.555,
+      "quality": {
+        "overlaps": 0,
+        "boxHits": 0,
+        "lineConflicts": 0,
+        "labelConflicts": 0
+      },
+      "bends": 4,
+      "bentLines": 3,
+      "width": 14.217,
+      "height": 7.353,
+      "repeat": 1
+    },
+    {
+      "group": "evaluation",
+      "id": "warehouse-fan",
+      "counts": {
+        "actors": 2,
+        "use_cases": 9,
+        "links": 3,
+        "dependencies": 6
+      },
+      "graphPlanar": true,
+      "seconds": 1.7557,
+      "quality": {
+        "overlaps": 0,
+        "boxHits": 0,
+        "lineConflicts": 0,
+        "labelConflicts": 0
+      },
+      "bends": 10,
+      "bentLines": 6,
+      "width": 10.507,
+      "height": 7.293,
+      "repeat": 1
+    },
+    {
+      "group": "stress",
+      "id": "shared-nonplanar",
+      "counts": {
+        "actors": 3,
+        "use_cases": 3,
+        "links": 9,
+        "dependencies": 0
+      },
+      "graphPlanar": false,
+      "seconds": 0.6257,
+      "quality": {
+        "overlaps": 0,
+        "boxHits": 0,
+        "lineConflicts": 2,
+        "labelConflicts": 0
+      },
+      "bends": 6,
+      "bentLines": 3,
+      "width": 6.018,
+      "height": 6.28,
+      "repeat": 1
+    },
+    {
+      "group": "stress",
+      "id": "dense-shared-24-cases",
+      "counts": {
+        "actors": 12,
+        "use_cases": 24,
+        "links": 48,
+        "dependencies": 24
+      },
+      "graphPlanar": false,
+      "seconds": 25.7873,
+      "quality": {
+        "overlaps": 0,
+        "boxHits": 4,
+        "lineConflicts": 125,
+        "labelConflicts": 12
+      },
+      "bends": 23,
+      "bentLines": 15,
+      "width": 11.602,
+      "height": 13.4,
+      "repeat": 1
+    }
+  ]
+}
