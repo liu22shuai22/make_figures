@@ -52,10 +52,32 @@ export type AssistantBand = 'local_faq' | 'product_tool' | 'refuse' | 'open_revi
 
 export interface AssistantTurnResult {
   band: AssistantBand
-  messages: Array<{ role: 'bot'; text: string }>
+  messages: Array<{ role: 'bot'; text: string; band?: AssistantBand; trace?: Record<string, unknown> }>
   actions: Array<{ type: string }>
   cardinality: { choices: CardinalityChoice[]; model: string } | null
   trace?: Record<string, unknown>
+}
+
+export interface AssistantStep {
+  stage: string
+  name: string
+  status: string
+  startMs: number
+  durationMs: number
+}
+
+export interface AssistantRecord {
+  id: number
+  created: string
+  steps: AssistantStep[]
+}
+
+export async function assistantRecords(token: string, signal: AbortSignal): Promise<AssistantRecord[]> {
+  const response = await fetch('/api/assistant/traces', {
+    headers: { Authorization: `Bearer ${token}` }, signal, cache: 'no-store',
+  })
+  if (!response.ok) throw new Error(String(response.status))
+  return (await response.json()).turns
 }
 
 export async function assistantTurn(input: {

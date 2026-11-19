@@ -9,6 +9,7 @@ ERFlow 是本机 E-R / 用例图工具。助手优先处理产品用法与草稿
 允许的 band 与 tool：
 - local_faq + faq.answer — 怎么开始、编辑、导出、上限、语义沙含义、登录隐私等产品说明
 - local_faq + usage.explain_channel — 用户问当前用什么模型 / 你是不是 GPT 等
+- local_faq + usage.explain — 查看 Token 用量与请求统计
 - open_review + draft.open_review — 用户要求检查/审查/核对模型或草稿
 - product_tool + draft.propose_cardinality — 改 E-R 联系基数、限制多少门课等
 - web_search + web.lookup — 询问外部事实/组织/术语释义（如 APEC、UML、什么是范式），走受控百科检索

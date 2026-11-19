@@ -155,6 +155,8 @@ function Root() {
       </div>
       <div hidden={route !== HOME && route !== WORKBENCH}>
         <AiAssistant
+          key={auth?.token ?? 'guest'}
+          onUsage={() => { setAssistantOpen(false); go(USAGE) }}
           open={assistantOpen}
           onOpenChange={setAssistantOpen}
           workbench={assistantDraft}

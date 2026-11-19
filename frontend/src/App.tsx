@@ -363,9 +363,10 @@ export default function App({ command, onHome, onUsage, onLogin, username, token
 
   useLayoutEffect(() => {
     onAssistantDraft(isUseCase
-      ? { spec: EMPTY_SPEC, issues: [], onLocate: locateSpec }
+      ? { diagramKind: 'usecase', spec: EMPTY_SPEC, issues: ucIssues,
+          useCaseCount: ucSpec.useCases.length, onLocate: locateSpec }
       : { spec, issues: erIssues, onLocate: locateSpec, applyCardinality })
-  }, [isUseCase, spec, erIssues, locateSpec, onAssistantDraft, applyCardinality])
+  }, [isUseCase, spec, erIssues, ucIssues, ucSpec.useCases.length, locateSpec, onAssistantDraft, applyCardinality])
 
   const handleRender = (positions?: DiagramPositions, relationPositions = savedRelationPositions) => {
     if (!generatingRef.current) return renderDraft(spec, positions, undefined, positions ? relationPositions : undefined)

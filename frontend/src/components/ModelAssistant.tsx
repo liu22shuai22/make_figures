@@ -5,6 +5,8 @@ import type { SpecDraft } from '../types'
 import { useLocale } from '../LocaleContext'
 
 export interface AssistantDraft {
+  diagramKind?: 'er' | 'usecase'
+  useCaseCount?: number
   spec: SpecDraft
   issues: Issue[]
   onLocate: (id: string) => void

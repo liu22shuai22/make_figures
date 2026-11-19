@@ -69,6 +69,8 @@ def preflight(ctx: TurnContext) -> TurnResult | None:
 def force_plan(ctx: TurnContext) -> RoutePlan | None:
     """Deterministic plans that should not wait for soft FAQ matching."""
     text = ctx.message.strip()
+    if re.search(r"token\s*用量|用量面板|查看用量|token usage|usage dashboard", text, re.I):
+        return RoutePlan("local_faq", "usage.explain", "usage_intent")
     if is_check_intent(text):
         return RoutePlan(band="open_review", tool="draft.open_review", reason="check_intent")
     if is_model_identity(text):
@@ -76,3 +78,49 @@ def force_plan(ctx: TurnContext) -> RoutePlan | None:
     if is_edit_intent(text):
         return RoutePlan(band="product_tool", tool="draft.propose_cardinality", reason="edit_intent")
     return None
+
+
+# (allowed surfaces, login required, supported diagram kinds). Local checks are available to guests.
+_ACCESS = {
+    "faq.answer": ({"welcome", "workbench"}, False, None),
+    "usage.explain_channel": ({"welcome", "workbench"}, False, None),
+    "usage.explain": ({"welcome", "workbench"}, False, None),
+    "scope.refuse": ({"welcome", "workbench"}, False, None),
+    "web.lookup": ({"welcome", "workbench"}, False, None),
+    "draft.open_review": ({"workbench"}, False, {"er", "usecase"}),
+    "draft.propose_cardinality": ({"workbench"}, True, {"er"}),
+}
+
+
+def check_access(name: str, ctx: TurnContext) -> TurnResult | None:
+    rule = _ACCESS.get(name)
+    if rule is None:
+        return TurnResult("refuse", [TurnMessage("bot", scope_refuse(ctx.locale))], trace={"blocked": "unknown_tool"})
+    surfaces, login, kinds = rule
+    if ctx.surface not in surfaces:
+        reason, zh, en = "not_workbench", "请先进入工作台并打开草稿。", "Open your draft on the workbench first."
+    elif kinds and ctx.diagram_kind not in kinds:
+        reason, zh, en = "diagram_kind", "这个操作需要 E-R 图草稿。", "This operation requires an E-R draft."
+    elif login and not ctx.authenticated:
+        reason, zh, en = "auth", "请先登录，再让我修改基数。", "Sign in before requesting a cardinality change."
+    else:
+        return None
+    band = "open_review" if name == "draft.open_review" else "product_tool"
+    return TurnResult(band, [TurnMessage("bot", zh if ctx.locale == "zh" else en)],
+                      trace={"tool": name, "blocked": reason})
+
+
+def has_binary_relation(spec: dict | None) -> bool:
+    relations = spec.get("relations") if isinstance(spec, dict) else None
+    if not isinstance(relations, list):
+        return False
+    for relation in relations:
+        if not isinstance(relation, dict):
+            continue
+        ends = relation.get("entities") or [relation.get("a"), relation.get("b")]
+        if not relation.get("entities") and relation.get("c"):
+            continue
+        if (isinstance(ends, list) and len(ends) == 2 and all(isinstance(e, str) and e.strip() for e in ends)
+                and ends[0].strip() != ends[1].strip()):
+            return True
+    return False

@@ -31,6 +31,8 @@ class RoutePlan:
 class TurnMessage:
     role: Literal["bot"]
     text: str
+    band: Band | None = None
+    trace: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -44,7 +46,8 @@ class TurnResult:
     def to_dict(self) -> dict[str, Any]:
         return {
             "band": self.band,
-            "messages": [{"role": item.role, "text": item.text} for item in self.messages],
+            "messages": [{"role": item.role, "text": item.text, "band": item.band or self.band,
+                          "trace": item.trace} for item in self.messages],
             "actions": self.actions,
             "cardinality": self.cardinality,
             "trace": self.trace,

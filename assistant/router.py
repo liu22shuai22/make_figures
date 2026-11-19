@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 
 from .knowledge import lookup_faq
-from .policy import force_plan
+from .policy import force_plan, has_binary_relation
 from .registry import TOOLS
 from .skills.router_prompt import ROUTER_SYSTEM, router_user_payload
 from .types import Band, Locale, RoutePlan, TurnContext
@@ -12,7 +12,7 @@ from .types import Band, Locale, RoutePlan, TurnContext
 logger = logging.getLogger(__name__)
 
 _BAND_TOOLS: dict[Band, set[str]] = {
-    "local_faq": {"faq.answer", "usage.explain_channel"},
+    "local_faq": {"faq.answer", "usage.explain_channel", "usage.explain"},
     "product_tool": {"draft.propose_cardinality"},
     "refuse": {"scope.refuse"},
     "open_review": {"draft.open_review"},
@@ -41,13 +41,6 @@ def rule_route(ctx: TurnContext) -> RoutePlan:
     locale: Locale = ctx.locale if ctx.locale in ("zh", "en") else "zh"
     if lookup_faq(ctx.message, locale):
         return RoutePlan(band="local_faq", tool="faq.answer", reason="knowledge_hit")
-
-    if ctx.surface == "workbench" and _has_binary_relation(ctx.spec):
-        return RoutePlan(
-            band="product_tool",
-            tool="draft.propose_cardinality",
-            reason="workbench_unknown_with_relations",
-        )
 
     from .memory import last_topic, looks_like_follow_up
     from .tools.web_lookup import looks_like_lookup
@@ -117,7 +110,7 @@ def _call_router_model(ctx: TurnContext) -> dict:
         ctx.message,
         surface=ctx.surface,
         diagram_kind=ctx.diagram_kind,
-        has_relations=_has_binary_relation(ctx.spec),
+        has_relations=has_binary_relation(ctx.spec),
         history_topic=last_topic(ctx),
     )
     reply = llm_chat(
@@ -132,20 +125,3 @@ def _call_router_model(ctx: TurnContext) -> dict:
         on_usage=record_usage,
     )
     return extract_json(reply)
-
-
-def _has_binary_relation(spec: dict | None) -> bool:
-    if not isinstance(spec, dict):
-        return False
-    relations = spec.get("relations")
-    if not isinstance(relations, list):
-        return False
-    for item in relations:
-        if not isinstance(item, dict):
-            continue
-        entities = item.get("entities") or item.get("ends")
-        if isinstance(entities, list) and len(entities) == 2:
-            return True
-        if isinstance(item.get("entities"), list) and len(item["entities"]) == 2:
-            return True
-    return False

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from ..policy import has_binary_relation
 from ..types import Locale, TurnContext, TurnMessage, TurnResult
 
 
@@ -9,29 +10,7 @@ def _locale(ctx: TurnContext) -> Locale:
 
 def propose_cardinality(ctx: TurnContext) -> TurnResult:
     locale = _locale(ctx)
-    if ctx.surface != "workbench":
-        text = (
-            "改基数需要在工作台打开一份含有联系的 E-R 草稿后再说，例如「限制每个学生最多选一门课」。"
-            if locale == "zh"
-            else "Open an E-R draft with relations on the workbench, then ask to change cardinality."
-        )
-        return TurnResult(
-            band="product_tool",
-            messages=[TurnMessage(role="bot", text=text)],
-            trace={"tool": "draft.propose_cardinality", "blocked": "not_workbench"},
-        )
-    if not ctx.authenticated:
-        text = (
-            "登录后才能调用模型理解改基数要求，并应用修改。"
-            if locale == "zh"
-            else "Sign in to let the model interpret cardinality edits and apply them."
-        )
-        return TurnResult(
-            band="product_tool",
-            messages=[TurnMessage(role="bot", text=text)],
-            trace={"tool": "draft.propose_cardinality", "blocked": "auth"},
-        )
-    if not _has_binary_relation(ctx.spec):
+    if not has_binary_relation(ctx.spec):
         text = (
             "请先打开一份含有联系的 E-R 图草稿，再告诉我怎么改基数。"
             if locale == "zh"
@@ -50,13 +29,12 @@ def propose_cardinality(ctx: TurnContext) -> TurnResult:
         LLMTimeoutError,
         SpecError,
         normalize_spec,
-        public_spec,
     )
     from llm_providers import apply_active_to_environ
     from pydantic import ValidationError
 
     # Lazy import avoids circular import at module load (api imports assistant on demand).
-    from api import generate_slot
+    from api import generate_slot, public_spec, validate_web_spec
 
     if not generate_slot.acquire(blocking=False):
         text = (
@@ -74,6 +52,7 @@ def propose_cardinality(ctx: TurnContext) -> TurnResult:
         try:
             apply_active_to_environ()
             model = normalize_spec(ctx.spec, report_isolated=False)
+            validate_web_spec(model)
             relations = [
                 {key: relation[key] for key in ("name", "entities", "card")}
                 for relation in public_spec(model)["relations"]
@@ -168,18 +147,3 @@ def propose_cardinality(ctx: TurnContext) -> TurnResult:
         )
     finally:
         generate_slot.release()
-
-
-def _has_binary_relation(spec: dict | None) -> bool:
-    if not isinstance(spec, dict):
-        return False
-    relations = spec.get("relations")
-    if not isinstance(relations, list):
-        return False
-    for item in relations:
-        if not isinstance(item, dict):
-            continue
-        entities = item.get("entities")
-        if isinstance(entities, list) and len(entities) >= 2:
-            return True
-    return False

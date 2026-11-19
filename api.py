@@ -346,14 +346,13 @@ def assistant_turn(body: AssistantTurnRequest, authorization: str | None = Heade
     """One turn on the assistant execution plane (FAQ / refuse / tools)."""
     from assistant import run_turn
 
-    authenticated = False
+    username = None
     token = bearer_token(authorization)
     if token:
         try:
-            session_username(token)
-            authenticated = True
+            username = session_username(token)
         except AuthError:
-            authenticated = False
+            pass
 
     if body.spec is not None and len(render_request_body(body.spec, "png")) > RENDER_REQUEST_LIMIT:
         raise HTTPException(413, "规格太大")
@@ -362,15 +361,28 @@ def assistant_turn(body: AssistantTurnRequest, authorization: str | None = Heade
     history = None
     if body.history:
         history = [item.model_dump() for item in body.history[-8:]]
-    return run_turn(
+    result = run_turn(
         body.message,
         surface=body.surface,
         locale=body.locale,
         diagram_kind=body.diagram_kind,
         spec=body.spec,
-        authenticated=authenticated,
+        authenticated=username is not None,
         history=history,
-    ).to_dict()
+    )
+    if username:
+        from assistant.trace_store import save
+        try:
+            save(username, result.trace["steps"])
+        except sqlite3.Error:
+            logger.warning("Assistant timeline could not be saved", exc_info=True)
+    return result.to_dict()
+
+
+@app.get("/api/assistant/traces")
+def assistant_traces(username: Annotated[str, Depends(require_render_account)]):
+    from assistant.trace_store import recent
+    return {"turns": recent(username)}
 
 @app.post("/api/assistant/review", dependencies=[Depends(require_render_account)])
 def assistant_review(body: ReviewRequest):

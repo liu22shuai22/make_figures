@@ -9749,6 +9749,10 @@ select.input {
   flex: 1 1 auto;
 }
 
+.ai-assist-body[hidden] {
+  display: none;
+}
+
 .ai-assist-review {
   min-height: 0;
   max-height: min(360px, 52vh);

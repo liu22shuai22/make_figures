@@ -3,6 +3,14 @@ from __future__ import annotations
 from ..types import Locale, TurnContext, TurnMessage, TurnResult
 
 
+def explain_usage(ctx: TurnContext) -> TurnResult:
+    text = ("用量页按服务商和渠道汇总本机记录的模型请求、输入和输出 Token。"
+            if ctx.locale == "zh" else
+            "Usage shows this installation’s model requests and input/output tokens by provider and channel.")
+    return TurnResult("local_faq", [TurnMessage("bot", text)], actions=[{"type": "show_usage"}],
+                      trace={"tool": "usage.explain"})
+
+
 def explain_channel(ctx: TurnContext) -> TurnResult:
     locale: Locale = ctx.locale if ctx.locale in ("zh", "en") else "zh"
     try:

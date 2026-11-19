@@ -3,10 +3,11 @@ import BrandMark from './BrandMark'
 import ModelAssistant, { type AssistantDraft } from './ModelAssistant'
 import { useLocale } from '../LocaleContext'
 import { buildCardinalityProposal } from '../assistantCardinality'
-import { ApiError, assistantTurn, type AssistantBand } from '../api'
+import { ApiError, assistantRecords, assistantTurn, type AssistantBand, type AssistantRecord, type AssistantStep } from '../api'
 import { toJsonSpec } from '../spec'
 
 interface AiAssistantProps {
+  onUsage: () => void
   onStart: () => void
   onSample: () => void
   onOpen: () => void
@@ -38,6 +39,7 @@ function nextId() {
 }
 
 export default function AiAssistant({
+  onUsage,
   onStart,
   onSample,
   onOpen,
@@ -51,7 +53,20 @@ export default function AiAssistant({
   const { locale, app } = useLocale()
   const a = app.assistant
   const panelId = useId()
-  const [view, setView] = useState<'chat' | 'review'>('chat')
+  const [view, setView] = useState<'chat' | 'review' | 'records'>('chat')
+  const [records, setRecords] = useState<AssistantRecord[]>([])
+  const [recordState, setRecordState] = useState<'loading' | 'ready' | 'error'>('ready')
+  const [sessionRecords, setSessionRecords] = useState<AssistantRecord[]>([])
+  const zh = locale === 'zh'
+  useEffect(() => {
+    if (!open || view !== 'records' || !token) return
+    const controller = new AbortController()
+    setRecordState('loading')
+    assistantRecords(token, controller.signal).then(items => {
+      if (!controller.signal.aborted) { setRecords(items); setRecordState('ready') }
+    }).catch(() => { if (!controller.signal.aborted) setRecordState('error') })
+    return () => controller.abort()
+  }, [open, view, token, sessionRecords])
   const [checkRequest, setCheckRequest] = useState(0)
   const [draft, setDraft] = useState('')
   const [busy, setBusy] = useState(false)
@@ -146,25 +161,26 @@ export default function AiAssistant({
         message: cleaned,
         surface: variant,
         locale,
-        diagram_kind: 'er',
+        diagram_kind: variant === 'workbench' ? workbench?.diagramKind ?? 'er' : 'er',
         spec: erDraft ? toJsonSpec(erDraft) : null,
         token,
         history: historyPayload(),
       })
 
       if (turn.actions.some((item) => item.type === 'open_review')) {
-        setView('review')
+        if (turn.messages.length === 1) setView('review')
         if (workbench?.spec.entities.length) setCheckRequest((previous) => previous + 1)
       }
 
-      const topic =
-        typeof turn.trace?.topic === 'string'
-          ? turn.trace.topic
-          : typeof turn.trace?.title === 'string'
-            ? turn.trace.title
-            : undefined
+      const steps = turn.trace?.steps
+      if (Array.isArray(steps)) {
+        const now = Date.now()
+        setSessionRecords(items => [{ id: now, created: new Date(now).toISOString(), steps: steps as AssistantStep[] }, ...items].slice(0, 30))
+      }
       for (const item of turn.messages) {
-        push('bot', item.text, turn.band, { topic, trace: turn.trace })
+        const trace = item.trace ?? turn.trace
+        const topic = typeof trace?.topic === 'string' ? trace.topic : undefined
+        push('bot', item.text, item.band ?? turn.band, { topic, trace })
       }
 
       const erSource = variant === 'workbench' ? workbench?.spec : undefined
@@ -250,11 +266,31 @@ export default function AiAssistant({
             >
               {a.tabReview}
             </button>
+            <button type="button" role="tab" className="ai-assist-tab" aria-selected={view === 'records'}
+              onClick={() => setView('records')}>{zh ? '执行记录' : 'Execution log'}</button>
           </div>
+
+          {view === 'records' && <div className="ai-assist-body"><div className="ai-assist-messages">
+            {token && recordState === 'loading' ? (zh ? '正在读取…' : 'Loading…') :
+              token && recordState === 'error' ? (zh ? '读取失败，请重新打开执行记录。' : 'Could not load. Reopen this tab to retry.') :
+              (token ? records : sessionRecords).length === 0 ? (zh ? '暂无执行记录' : 'No turns yet') :
+              (token ? records : sessionRecords).map(record => <details key={record.id}>
+                <summary>{new Date(record.created).toLocaleString()} · {record.steps.filter(s => s.stage === 'tool').map(s => s.name).join(' → ') || 'preflight'}</summary>
+                <ol>{record.steps.map((s, i) => <li key={i}>{s.stage} · {s.name} · {s.status} · +{s.startMs} ms ({s.durationMs} ms)</li>)}</ol>
+              </details>)}
+          </div></div>}
 
           <div className="ai-assist-body" hidden={view !== 'review'}>
             <div className="ai-assist-review">
-              {workbench && (
+              {variant === 'workbench' && workbench?.diagramKind === 'usecase' && (
+                <section aria-label={a.reviewAria}>
+                  <strong>{zh ? '用例图结构检查' : 'Use-case structure check'}</strong>
+                  {workbench.issues.length ? <ul>{workbench.issues.map((issue, index) =>
+                    <li key={index}>{issue.message}</li>)}</ul> : <p>{workbench.useCaseCount
+                      ? (zh ? '当前草稿通过结构检查。' : 'The draft passed structural checks.')
+                      : (zh ? '请先载入用例草稿。' : 'Open a use-case draft first.')}</p>}
+                </section>)}
+              {variant === 'workbench' && workbench && workbench.diagramKind !== 'usecase' && (
                 <ModelAssistant
                   key={token ?? ''}
                   {...workbench}
@@ -281,6 +317,10 @@ export default function AiAssistant({
                     <span className={'ai-assist-band is-' + message.band}>{bandLabel(message.band)}</span>
                   )}
                   <div className="ai-assist-text">{message.text}</div>
+                  {message.trace?.tool === 'usage.explain' && <button type="button" className="btn btn-sm"
+                    onClick={onUsage}>{zh ? '查看 Token 用量' : 'View token usage'}</button>}
+                  {message.trace?.tool === 'draft.open_review' && !message.trace.blocked && <button type="button"
+                    className="btn btn-sm" onClick={() => setView('review')}>{a.tabReview}</button>}
                   {message.role === 'bot' && traceBits(message.trace).length > 0 && (
                     <div className="ai-assist-trace">
                       {traceBits(message.trace).map((bit) => (

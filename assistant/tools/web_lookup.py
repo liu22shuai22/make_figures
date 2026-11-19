@@ -76,8 +76,7 @@ def lookup(ctx: TurnContext) -> TurnResult:
         )
 
     # Encyclopedia unreachable or empty → brief answer via active model when possible.
-    # Local single-user app: active channel is enough (login not required for this fallback).
-    brief = _model_brief_answer(query, locale)
+    brief = _model_brief_answer(query, locale) if ctx.authenticated else None
     if brief is not None:
         note = (
             "（百科外联暂不可用，以下为启用模型的简要说明，仅供参考。）"

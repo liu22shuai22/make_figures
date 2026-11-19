@@ -9,6 +9,62 @@ from assistant.types import TurnContext
 
 
 class AssistantPlaneTests(unittest.TestCase):
+    def test_combined_requests_go_through_each_tool_policy(self):
+        result = run_turn("检查模型，然后帮我改基数", surface="workbench")
+        tools = [s for s in result.trace["steps"] if s["stage"] == "tool"]
+        self.assertEqual([(s["name"], s["status"]) for s in tools],
+                         [("draft.open_review", "ok"), ("draft.propose_cardinality", "auth")])
+        self.assertTrue(result.trace["combined"])
+        self.assertEqual(result.trace["tools"], ["draft.open_review", "draft.propose_cardinality"])
+        self.assertEqual(result.actions, [{"type": "open_review"}])
+        self.assertIsNone(result.cardinality)
+        self.assertEqual(run_turn("帮我改基数", surface="workbench", authenticated=True,
+                                  diagram_kind="usecase").trace["blocked"], "diagram_kind")
+        refused = run_turn("怎么开始？顺便查看Token用量和赌博")
+        self.assertEqual([s["stage"] for s in refused.trace["steps"]], ["policy"])
+        # Encyclopedic / paid lookups stay single-turn even with connectors.
+        wiki_combo = run_turn("怎么开始？顺便你知道APEC吗", surface="welcome")
+        self.assertFalse(wiki_combo.trace.get("combined"))
+        self.assertEqual(wiki_combo.trace.get("tools"), ["faq.answer"])
+
+    def test_history_is_scoped_and_replay_does_not_execute(self):
+        import tempfile
+        from pathlib import Path
+        from fastapi.testclient import TestClient
+        import api
+        import auth
+        from assistant import trace_store
+
+        with tempfile.TemporaryDirectory() as tmp, patch.object(auth, "DB_PATH", Path(tmp) / "auth.db"), \
+                patch.object(trace_store, "DB_PATH", Path(tmp) / "trace.db"), TestClient(api.app) as client:
+            auth._init_table()
+            alice = {"Authorization": "Bearer " + auth.open_session("alice")}
+            bob = {"Authorization": "Bearer " + auth.open_session("bob")}
+            response = client.post("/api/assistant/turn", headers=alice, json={"message": "怎么开始？顺便查看Token用量"})
+            self.assertEqual(response.status_code, 200)
+            data = response.json()
+            self.assertEqual([m["trace"]["tool"] for m in data["messages"]], ["faq.answer", "usage.explain"])
+            self.assertEqual(data["actions"], [{"type": "show_usage"}])
+            path = "/api/assistant/traces"
+            self.assertEqual(client.get(path).status_code, 401)
+            self.assertEqual(client.get(path, headers=bob).json()["turns"], [])
+            self.assertEqual(client.get(path, headers=alice).json()["turns"][0]["steps"], data["trace"]["steps"])
+            for _ in range(trace_store.KEEP):
+                trace_store.save("alice", [])
+            self.assertEqual(len(trace_store.recent("alice")), trace_store.KEEP)
+            self.assertTrue(all(not row["steps"] for row in trace_store.recent("alice")))
+
+    def test_workbench_encyclopedia_question_does_not_fall_into_edit(self):
+        ctx = TurnContext(message="你知道APEC吗", surface="workbench",
+                          spec={"relations": [{"entities": ["A", "B"]}]})
+        self.assertEqual(rule_route(ctx).tool, "web.lookup")
+
+    def test_legacy_and_current_binary_drafts(self):
+        from assistant.policy import has_binary_relation
+        for relation in ({"a": "学生", "b": "课程"}, {"entities": ["学生", "课程"]}):
+            self.assertTrue(has_binary_relation({"relations": [relation]}))
+        self.assertFalse(has_binary_relation({"relations": [{"a": "学生", "b": "课程", "c": "教师"}]}))
+
     def test_faq_hit_is_local_band(self):
         result = run_turn("怎么开始？", surface="welcome", locale="zh")
         self.assertEqual(result.band, "local_faq")
