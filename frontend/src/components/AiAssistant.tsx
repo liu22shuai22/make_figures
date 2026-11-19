@@ -38,6 +38,61 @@ function nextId() {
   return `m-${messageSeq}`
 }
 
+type RecordTone = 'ok' | 'warn' | 'fail'
+
+function toolSteps(steps: AssistantStep[]) {
+  return steps.filter((step) => step.stage === 'tool')
+}
+
+function recordTone(steps: AssistantStep[]): RecordTone {
+  const statuses = toolSteps(steps).map((step) => step.status)
+  if (statuses.some((status) => ['error', 'internal', 'timeout', 'llm', 'config', 'shape'].includes(status))) {
+    return 'fail'
+  }
+  if (statuses.some((status) =>
+    ['auth', 'blocked', 'not_workbench', 'diagram_kind', 'no_relation', 'no_binary', 'busy', 'refused', 'no_match'].includes(status))) {
+    return 'warn'
+  }
+  return 'ok'
+}
+
+function recordElapsed(steps: AssistantStep[]) {
+  if (!steps.length) return 0
+  const last = steps[steps.length - 1]
+  return last.startMs + last.durationMs
+}
+
+function stepTone(status: string): RecordTone {
+  if (['error', 'internal', 'timeout', 'llm', 'config', 'shape'].includes(status)) return 'fail'
+  if (['auth', 'blocked', 'not_workbench', 'diagram_kind', 'no_relation', 'no_binary', 'busy', 'refused', 'no_match'].includes(status)) {
+    return 'warn'
+  }
+  return 'ok'
+}
+
+function formatRecordWhen(
+  iso: string,
+  locale: string,
+  copy: {
+    recordJustNow: string
+    recordMinutesAgo: (n: number) => string
+    recordHoursAgo: (n: number) => string
+  },
+) {
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return iso
+  const delta = Date.now() - date.getTime()
+  if (delta >= 0 && delta < 60_000) return copy.recordJustNow
+  if (delta >= 0 && delta < 3_600_000) return copy.recordMinutesAgo(Math.floor(delta / 60_000))
+  if (delta >= 0 && delta < 86_400_000) return copy.recordHoursAgo(Math.floor(delta / 3_600_000))
+  return date.toLocaleString(locale === 'zh' ? 'zh-CN' : 'en', {
+    month: 'numeric',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
 export default function AiAssistant({
   onUsage,
   onStart,
@@ -58,6 +113,7 @@ export default function AiAssistant({
   const [recordState, setRecordState] = useState<'loading' | 'ready' | 'error'>('ready')
   const [sessionRecords, setSessionRecords] = useState<AssistantRecord[]>([])
   const zh = locale === 'zh'
+  const visibleRecords = token ? records : sessionRecords
   useEffect(() => {
     if (!open || view !== 'records' || !token) return
     const controller = new AbortController()
@@ -266,19 +322,112 @@ export default function AiAssistant({
             >
               {a.tabReview}
             </button>
-            <button type="button" role="tab" className="ai-assist-tab" aria-selected={view === 'records'}
-              onClick={() => setView('records')}>{zh ? '执行记录' : 'Execution log'}</button>
+            <button
+              type="button"
+              role="tab"
+              className="ai-assist-tab"
+              aria-selected={view === 'records'}
+              onClick={() => setView('records')}
+            >
+              {a.tabRecords}
+            </button>
           </div>
 
-          {view === 'records' && <div className="ai-assist-body"><div className="ai-assist-messages">
-            {token && recordState === 'loading' ? (zh ? '正在读取…' : 'Loading…') :
-              token && recordState === 'error' ? (zh ? '读取失败，请重新打开执行记录。' : 'Could not load. Reopen this tab to retry.') :
-              (token ? records : sessionRecords).length === 0 ? (zh ? '暂无执行记录' : 'No turns yet') :
-              (token ? records : sessionRecords).map(record => <details key={record.id}>
-                <summary>{new Date(record.created).toLocaleString()} · {record.steps.filter(s => s.stage === 'tool').map(s => s.name).join(' → ') || 'preflight'}</summary>
-                <ol>{record.steps.map((s, i) => <li key={i}>{s.stage} · {s.name} · {s.status} · +{s.startMs} ms ({s.durationMs} ms)</li>)}</ol>
-              </details>)}
-          </div></div>}
+          <div className="ai-assist-body" hidden={view !== 'records'}>
+            <div className="ai-assist-records">
+              <div className="ai-assist-records-head">
+                <p className="ai-assist-records-hint">
+                  {a.recordsHint}
+                  {!token ? ` ${a.recordsGuestHint}` : ''}
+                </p>
+                {visibleRecords.length > 0 && recordState === 'ready' ? (
+                  <span className="ai-assist-records-count">{a.recordsCount(visibleRecords.length)}</span>
+                ) : null}
+              </div>
+              {token && recordState === 'loading' ? (
+                <p className="ai-assist-records-empty">{a.recordsLoading}</p>
+              ) : token && recordState === 'error' ? (
+                <p className="ai-assist-records-empty">{a.recordsError}</p>
+              ) : visibleRecords.length === 0 ? (
+                <p className="ai-assist-records-empty">{a.recordsEmpty}</p>
+              ) : (
+                <ul className="ai-assist-record-list">
+                  {visibleRecords.map((record) => {
+                    const tools = toolSteps(record.steps)
+                    const labels = tools.length
+                      ? tools.map((step) => a.recordTool[step.name] || step.name)
+                      : [a.recordTool.preflight]
+                    const tone = recordTone(record.steps)
+                    const elapsed = recordElapsed(record.steps)
+                    return (
+                      <li key={record.id}>
+                        <details className={'ai-assist-record is-' + tone} name="ai-assist-records">
+                          <summary>
+                            <span className="ai-assist-record-tone" aria-hidden="true" />
+                            <span className="ai-assist-record-main">
+                              <span className="ai-assist-record-tools" aria-label={labels.join(' → ')}>
+                                {labels.map((label, index) => (
+                                  <span key={`${record.id}-tool-${index}`} className="ai-assist-record-chip">
+                                    {index > 0 ? <span className="ai-assist-record-arrow" aria-hidden="true">→</span> : null}
+                                    <span>{label}</span>
+                                  </span>
+                                ))}
+                                {tools.length > 1 ? (
+                                  <span className="ai-assist-record-tag">{a.recordCombined}</span>
+                                ) : null}
+                              </span>
+                              <span className="ai-assist-record-meta">
+                                <span className={'ai-assist-record-outcome is-' + tone}>
+                                  {a.recordOutcome[tone]}
+                                </span>
+                                <span>{formatRecordWhen(record.created, locale, a)}</span>
+                                {elapsed > 0 ? <span>{a.recordDuration(elapsed)}</span> : null}
+                              </span>
+                            </span>
+                            <span className="ai-assist-record-chevron" aria-hidden="true" />
+                          </summary>
+                          <ol className="ai-assist-record-steps">
+                            {record.steps.map((step, index) => {
+                              const rowTone = step.stage === 'tool' ? stepTone(step.status) : 'ok'
+                              return (
+                                <li
+                                  key={`${record.id}-${index}`}
+                                  className={
+                                    'ai-assist-record-step is-' + rowTone
+                                    + (step.stage === 'tool' ? ' is-tool' : ' is-quiet')
+                                  }
+                                >
+                                  <span className="ai-assist-record-step-rail" aria-hidden="true" />
+                                  <span className="ai-assist-record-step-body">
+                                    <span className="ai-assist-record-step-top">
+                                      <span className="ai-assist-record-step-stage">
+                                        {a.recordStage[step.stage] || step.stage}
+                                      </span>
+                                      <span className="ai-assist-record-step-name">
+                                        {a.recordTool[step.name] || step.name}
+                                      </span>
+                                    </span>
+                                    <span className="ai-assist-record-step-bottom">
+                                      <span className="ai-assist-record-step-status">
+                                        {a.recordStatus[step.status] || step.status}
+                                      </span>
+                                      <span className="ai-assist-record-step-time">
+                                        {a.recordDuration(step.durationMs)}
+                                      </span>
+                                    </span>
+                                  </span>
+                                </li>
+                              )
+                            })}
+                          </ol>
+                        </details>
+                      </li>
+                    )
+                  })}
+                </ul>
+              )}
+            </div>
+          </div>
 
           <div className="ai-assist-body" hidden={view !== 'review'}>
             <div className="ai-assist-review">

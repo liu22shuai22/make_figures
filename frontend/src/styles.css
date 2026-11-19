@@ -9710,7 +9710,7 @@ select.input {
 /* 分段切换：和快捷问题胶囊区分开 */
 .ai-assist-tabs {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 2px;
   padding: 3px;
   border-radius: 11px;
@@ -9726,8 +9726,9 @@ select.input {
   background: transparent;
   color: var(--ink-muted);
   font: inherit;
-  font-size: 12.5px;
+  font-size: 12px;
   font-weight: 600;
+  padding: 0 4px;
   cursor: pointer;
 }
 
@@ -9757,6 +9758,282 @@ select.input {
   min-height: 0;
   max-height: min(360px, 52vh);
   overflow-y: auto;
+}
+
+.ai-assist-records {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  max-height: min(380px, 54vh);
+  overflow: auto;
+  padding: 2px 2px 6px;
+}
+
+.ai-assist-records-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.ai-assist-records-hint,
+.ai-assist-records-empty {
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.ai-assist-records-count {
+  flex: 0 0 auto;
+  color: var(--ink-soft);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  padding-top: 1px;
+}
+
+.ai-assist-records-empty {
+  padding: 28px 12px;
+  text-align: center;
+  border: 1px dashed var(--paper-line);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--paper-sunk) 55%, transparent);
+}
+
+.ai-assist-record-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ai-assist-record {
+  border: 1px solid var(--paper-line);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--paper-surface) 88%, transparent);
+  overflow: hidden;
+  transition: border-color 0.16s ease, background 0.16s ease;
+}
+
+.ai-assist-record:hover {
+  border-color: color-mix(in srgb, var(--ink-muted) 35%, var(--paper-line));
+}
+
+.ai-assist-record[open] {
+  background: color-mix(in srgb, var(--paper-surface) 96%, var(--accent-soft) 4%);
+  border-color: color-mix(in srgb, var(--accent) 22%, var(--paper-line));
+}
+
+.ai-assist-record > summary {
+  list-style: none;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 11px 12px;
+  cursor: pointer;
+}
+
+.ai-assist-record > summary::-webkit-details-marker {
+  display: none;
+}
+
+.ai-assist-record-tone {
+  width: 8px;
+  height: 8px;
+  margin-top: 7px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+  background: #5d9b74;
+  box-shadow: 0 0 0 3px color-mix(in srgb, #5d9b74 18%, transparent);
+}
+
+.ai-assist-record.is-warn .ai-assist-record-tone {
+  background: #c4933a;
+  box-shadow: 0 0 0 3px color-mix(in srgb, #c4933a 18%, transparent);
+}
+
+.ai-assist-record.is-fail .ai-assist-record-tone {
+  background: #c45d5d;
+  box-shadow: 0 0 0 3px color-mix(in srgb, #c45d5d 18%, transparent);
+}
+
+.ai-assist-record-main {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.ai-assist-record-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 2px;
+  min-width: 0;
+}
+
+.ai-assist-record-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.ai-assist-record-arrow {
+  color: var(--ink-muted);
+  font-weight: 500;
+  margin-right: 2px;
+}
+
+.ai-assist-record-tag {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  margin-left: 4px;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent-soft) 70%, transparent);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.ai-assist-record-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  color: var(--ink-muted);
+  font-size: 11.5px;
+  line-height: 1.35;
+}
+
+.ai-assist-record-outcome {
+  font-weight: 600;
+}
+
+.ai-assist-record-outcome.is-ok {
+  color: #6fb389;
+}
+
+.ai-assist-record-outcome.is-warn {
+  color: #d0a45a;
+}
+
+.ai-assist-record-outcome.is-fail {
+  color: #d67777;
+}
+
+.ai-assist-record-chevron {
+  width: 7px;
+  height: 7px;
+  margin-top: 7px;
+  border-right: 1.5px solid var(--ink-muted);
+  border-bottom: 1.5px solid var(--ink-muted);
+  transform: rotate(-45deg);
+  transition: transform 0.16s ease;
+  flex: 0 0 auto;
+  opacity: 0.7;
+}
+
+.ai-assist-record[open] > summary .ai-assist-record-chevron {
+  margin-top: 9px;
+  transform: rotate(45deg);
+}
+
+.ai-assist-record-steps {
+  list-style: none;
+  margin: 0;
+  padding: 2px 12px 12px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  border-top: 1px solid var(--paper-line);
+}
+
+.ai-assist-record-step {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr);
+  gap: 8px;
+  position: relative;
+  padding: 8px 0;
+}
+
+.ai-assist-record-step + .ai-assist-record-step {
+  border-top: 1px solid color-mix(in srgb, var(--paper-line) 70%, transparent);
+}
+
+.ai-assist-record-step-rail {
+  width: 8px;
+  height: 8px;
+  margin-top: 5px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--ink-muted) 45%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--paper-sunk) 80%, transparent);
+}
+
+.ai-assist-record-step.is-tool .ai-assist-record-step-rail {
+  background: #5d9b74;
+}
+
+.ai-assist-record-step.is-tool.is-warn .ai-assist-record-step-rail {
+  background: #c4933a;
+}
+
+.ai-assist-record-step.is-tool.is-fail .ai-assist-record-step-rail {
+  background: #c45d5d;
+}
+
+.ai-assist-record-step.is-quiet {
+  opacity: 0.78;
+}
+
+.ai-assist-record-step-body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.ai-assist-record-step-top,
+.ai-assist-record-step-bottom {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 10px;
+}
+
+.ai-assist-record-step-stage {
+  color: var(--ink-muted);
+  font-size: 11px;
+  min-width: 2em;
+}
+
+.ai-assist-record-step-name {
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 600;
+  min-width: 0;
+}
+
+.ai-assist-record-step-status,
+.ai-assist-record-step-time {
+  color: var(--ink-muted);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+
+.ai-assist-record-step-time {
+  font-variant-numeric: tabular-nums;
+  margin-left: auto;
 }
 
 .ai-assist-messages {
