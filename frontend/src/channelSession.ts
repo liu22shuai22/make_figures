@@ -20,9 +20,13 @@ function storageKey(token: string) {
 function readStore(token: string): BrowserStore {
   const raw = sessionStorage.getItem(storageKey(token))
   if (!raw) return { active_id: null, providers: [] }
-  const store = JSON.parse(raw) as BrowserStore
-  if (!Array.isArray(store.providers)) throw new Error('本地渠道配置无效，请重新导入')
-  return store
+  try {
+    const store = JSON.parse(raw) as BrowserStore
+    if (!store || !Array.isArray(store.providers) || store.providers.some(item => !item || typeof item.id !== 'string')) throw new Error()
+    return store
+  } catch {
+    throw new Error('本地渠道配置无效，请重新导入')
+  }
 }
 
 export function channelHeaders(token?: string, all = false): Record<string, string> {
@@ -42,5 +46,9 @@ export function saveBrowserChannels(token: string, payload: unknown) {
   if (!payload || typeof payload !== 'object' || !('browser_store' in payload)) return
   const store = (payload as { browser_store: BrowserStore }).browser_store
   if (!store || !Array.isArray(store.providers)) throw new Error('渠道返回格式无效')
-  sessionStorage.setItem(storageKey(token), JSON.stringify(store))
+  const serialized = JSON.stringify(store)
+  if (4 * Math.ceil(new TextEncoder().encode(serialized).length / 3) > 32_000) {
+    throw new Error('渠道配置过大，本次修改未保存，请减少导入的渠道或字段长度')
+  }
+  sessionStorage.setItem(storageKey(token), serialized)
 }

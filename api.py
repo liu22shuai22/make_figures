@@ -1,4 +1,5 @@
 import base64
+import anyio
 import binascii
 import os
 from contextlib import redirect_stdout
@@ -14,8 +15,11 @@ from uuid import uuid4
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
+from starlette.concurrency import run_in_threadpool
+from fastapi.concurrency import contextmanager_in_threadpool
 from request_scope import RequestScope, current_scope
-from request_limits import admit, BusyError
+from request_limits import admit, BusyError, RENDER_CAPACITY
 from pydantic import BaseModel, StringConstraints
 from token_usage import read_usage, record_usage
 from auth import (
@@ -43,8 +47,7 @@ from auth import (
 
 app = FastAPI(title="ERFlow")
 logger = logging.getLogger(__name__)
-render_slot = BoundedSemaphore(max(1, min(16, int(os.getenv("ERFLOW_RENDER_CONCURRENCY", "2")))))
-generate_slot = BoundedSemaphore(max(1, min(16, int(os.getenv("ERFLOW_MODEL_CONCURRENCY", "4")))))
+render_slot = BoundedSemaphore(RENDER_CAPACITY)
 usecase_review_slot = BoundedSemaphore(1)
 worker_script = Path(__file__).resolve()
 RENDER_REQUEST_LIMIT = 128 * 1024
@@ -69,17 +72,23 @@ async def isolate_user_requests(request: Request, call_next):
     token = bearer_token(request.headers.get("authorization"))
     if token:
         try:
-            username = session_username(token)
+            username = await run_in_threadpool(session_username, token)
         except AuthError:
             pass
+        except sqlite3.Error:
+            return JSONResponse({"detail": "服务暂忙，请稍后重试"}, status_code=503)
     if request.method in {"POST", "PUT", "PATCH"}:
         chunks = []
         size = 0
-        async for chunk in request.stream():
-            size += len(chunk)
-            if size > 256 * 1024:
-                return JSONResponse({"detail": "请求内容过大"}, status_code=413)
-            chunks.append(chunk)
+        try:
+            with anyio.fail_after(15):
+                async for chunk in request.stream():
+                    size += len(chunk)
+                    if size > 256 * 1024:
+                        return JSONResponse({"detail": "请求内容过大"}, status_code=413)
+                    chunks.append(chunk)
+        except TimeoutError:
+            return JSONResponse({"detail": "上传请求超时，请重试"}, status_code=408)
         request._body = b"".join(chunks)
     scope = RequestScope(username)
     marker = current_scope.set(scope)
@@ -102,11 +111,12 @@ async def isolate_user_requests(request: Request, call_next):
         path = request.url.path
         kind = ("render" if path in {"/api/render", "/api/render-usecase"} else
                 "auth" if path in {"/api/auth/login", "/api/auth/register", "/api/auth/email-code"} else
-                "model" if path.startswith("/api/generate") or path.startswith("/api/assistant/") and path != "/api/assistant/traces"
-                or path in {"/api/providers/probe-gateway", "/api/providers/list-models"} else None)
+                "probe" if path in {"/api/providers/probe-gateway", "/api/providers/list-models"} else
+                "assistant" if path == "/api/assistant/turn" else None)
         if kind:
-            owner = ("account:" + username) if username else ("ip:" + (request.client.host if request.client else "unknown"))
-            with admit(owner, kind):
+            # Authentication is always IP-limited: switching bearer tokens must not reset it.
+            owner = ("account:" + username) if username and kind != "auth" else ("ip:" + (request.client.host if request.client else "unknown"))
+            async with contextmanager_in_threadpool(admit(owner, kind)):
                 response = await call_next(request)
         else:
             response = await call_next(request)
@@ -118,6 +128,24 @@ async def isolate_user_requests(request: Request, call_next):
         return JSONResponse({"detail": "服务暂忙，请稍后重试"}, status_code=503)
     finally:
         current_scope.reset(marker)
+
+
+@app.exception_handler(RequestValidationError)
+async def safe_validation_error(request: Request, error: RequestValidationError):
+    # Pydantic includes rejected input (potentially passwords/keys) by default.
+    details = [{key: item[key] for key in ("loc", "msg", "type") if key in item}
+               for item in error.errors()]
+    return JSONResponse({"detail": details}, status_code=422)
+
+
+@app.middleware("http")
+async def protect_response_headers(request: Request, call_next):
+    # Outer layer also covers early 401/413/422/429 returns from admission.
+    response = await call_next(request)
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    return response
 
 
 class GenerateRequest(BaseModel):
@@ -409,7 +437,7 @@ def assistant_turn(body: AssistantTurnRequest, authorization: str | None = Heade
     if body.spec is not None and len(render_request_body(body.spec, "png")) > RENDER_REQUEST_LIMIT:
         raise HTTPException(413, "规格太大")
 
-    # Cardinality tool acquires generate_slot itself; FAQ / model-router stay non-blocking here.
+    # Model admission happens only when the assistant actually calls llm_chat.
     history = None
     if body.history:
         history = [item.model_dump() for item in body.history[-8:]]
@@ -461,7 +489,7 @@ def assistant_review_usecase(body: UseCaseReviewRequest):
     if len(render_request_body(body.spec, "png", kind="usecase")) > RENDER_REQUEST_LIMIT:
         raise HTTPException(413, "用例图草稿太大")
     if not usecase_review_slot.acquire(blocking=False):
-        raise HTTPException(503, "正在审查另一份用例图")
+        raise HTTPException(429, "正在审查另一份用例图", headers={"Retry-After": "5"})
     try:
         apply_active_to_environ()
         return review_usecase(body.text, body.spec)
@@ -489,8 +517,6 @@ def assistant_cardinality(body: CardinalityRequest):
                  for relation in public_spec(model)["relations"]]
     if not any(len(relation["entities"]) == 2 and len(set(relation["entities"])) == 2 for relation in relations):
         raise HTTPException(422, "请先添加一条连接两个不同实体的二元联系")
-    if not generate_slot.acquire(blocking=False):
-        raise HTTPException(503, "模型正在处理另一项任务，请稍后重试")
     try:
         apply_active_to_environ()
         return propose_cardinality(body.text, relations)
@@ -504,8 +530,6 @@ def assistant_cardinality(body: CardinalityRequest):
     except (SpecError, ValidationError) as error:
         logger.warning("Cardinality suggestion unavailable: %s", type(error).__name__)
         raise HTTPException(502, "模型已返回，但基数修改建议的格式无效") from None
-    finally:
-        generate_slot.release()
 
 
 @app.post("/api/generate", dependencies=[Depends(require_render_account)])
@@ -514,8 +538,6 @@ def generate(request: GenerateRequest):
     from llm_providers import apply_active_to_environ
 
     apply_active_to_environ()
-    if not generate_slot.acquire(blocking=False):
-        raise HTTPException(status_code=503, detail="正在生成另一份规格，请稍后重试")
     try:
         model, _ = spec_from_text(request.text, retries=1, timeout=MODEL_REQUEST_TIMEOUT,
                                   total_timeout=MODEL_GENERATION_BUDGET,
@@ -531,8 +553,6 @@ def generate(request: GenerateRequest):
     except LLMError as error:
         logger.warning("Model generation failed: %s", error)
         raise HTTPException(status_code=502, detail=str(error)) from None
-    finally:
-        generate_slot.release()
     return {"spec": public_spec(model)}
 
 
@@ -543,8 +563,6 @@ def generate_usecase(request: GenerateRequest):
     from usecase_generator import USECASE_WEB_RULES, usecase_from_text
 
     apply_active_to_environ()
-    if not generate_slot.acquire(blocking=False):
-        raise HTTPException(status_code=503, detail="正在生成另一份规格，请稍后重试")
     try:
         _, public = usecase_from_text(
             request.text,
@@ -566,8 +584,6 @@ def generate_usecase(request: GenerateRequest):
     except LLMError as error:
         logger.warning("Use-case generation failed: %s", error)
         raise HTTPException(status_code=502, detail=str(error)) from None
-    finally:
-        generate_slot.release()
     return {"spec": public}
 
 
@@ -579,7 +595,7 @@ def render(spec: dict, username: Annotated[str, Depends(require_render_account)]
     if len(request) > RENDER_REQUEST_LIMIT:
         raise HTTPException(status_code=413, detail="JSON 规格太大")
     if not render_slot.acquire(blocking=False):
-        raise HTTPException(status_code=503, detail="正在为另一份规格出图，请稍后重试")
+        raise HTTPException(status_code=429, detail="正在为另一份规格出图，请稍后重试", headers={"Retry-After": "5"})
     try:
         try:
             result = subprocess.run(
@@ -612,7 +628,7 @@ def render_usecase(spec: dict, username: Annotated[str, Depends(require_render_a
     if len(request) > RENDER_REQUEST_LIMIT:
         raise HTTPException(status_code=413, detail="JSON 规格太大")
     if not render_slot.acquire(blocking=False):
-        raise HTTPException(status_code=503, detail="正在为另一份规格出图，请稍后重试")
+        raise HTTPException(status_code=429, detail="正在为另一份规格出图，请稍后重试", headers={"Retry-After": "5"})
     try:
         try:
             result = subprocess.run(

@@ -52,19 +52,41 @@ function detailMessage(data: unknown, fallback: string) {
   return fallback
 }
 
-async function authFetch(path: string, token: string, init?: RequestInit) {
-  const response = await fetch(path, {
-    ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      ...channelHeaders(token, true),
-      Authorization: `Bearer ${token}`,
-      ...(init?.headers || {}),
-    },
-  })
-  const data = await readJson(response)
-  if (response.ok) saveBrowserChannels(token, data)
-  return { response, data }
+const channelRequests = new Map<string, Promise<unknown>>()
+
+function authFetch(path: string, token: string, init?: RequestInit) {
+  // Each operation reads the configuration committed by the preceding operation.
+  const previous = channelRequests.get(token) || Promise.resolve()
+  const task = previous.catch(() => undefined).then(() => sendChannelRequest(path, token, init))
+  channelRequests.set(token, task)
+  const cleanup = () => { if (channelRequests.get(token) === task) channelRequests.delete(token) }
+  void task.then(cleanup, cleanup)
+  return task
+}
+
+async function sendChannelRequest(path: string, token: string, init?: RequestInit) {
+  const controller = new AbortController()
+  const timer = window.setTimeout(() => controller.abort(), 30_000)
+  try {
+    const response = await fetch(path, {
+      ...init,
+      signal: controller.signal,
+      headers: {
+        'Content-Type': 'application/json',
+        ...channelHeaders(token, true),
+        Authorization: `Bearer ${token}`,
+        ...(init?.headers || {}),
+      },
+    })
+    const data = await readJson(response)
+    if (response.ok) saveBrowserChannels(token, data)
+    return { response, data }
+  } catch (error) {
+    if ((error as Error).name === 'AbortError') throw new Error('渠道请求超时，请重试')
+    throw error
+  } finally {
+    window.clearTimeout(timer)
+  }
 }
 
 export async function fetchProviders(token: string): Promise<ProvidersPayload> {

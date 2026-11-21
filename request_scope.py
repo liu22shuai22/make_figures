@@ -7,5 +7,6 @@ class RequestScope:
     username: str | None
     store: dict = field(default_factory=lambda: {"active_id": None, "providers": []})
     endpoints: dict = field(default_factory=dict)
+    model_depth: int = 0
 
 current_scope: ContextVar[RequestScope | None] = ContextVar("erflow_request", default=None)

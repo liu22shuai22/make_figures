@@ -622,6 +622,9 @@ def _http_json(url, headers, body, timeout=180, *, stream=None, on_usage=None):
             on_usage(usage)
 
 
+from request_limits import model_admitted
+
+@model_admitted
 def llm_chat(messages, provider, model, api_key, base_url, *, timeout=180, system_prompt=SYSTEM_PROMPT,
              stream=True, on_usage=None):
     def tracked(usage):
@@ -1499,9 +1502,10 @@ def _anneal_task(args):
 
 def _run_anneals(tasks, parallel=True):
     """多进程并行跑退火；失败（如受限环境）则退回串行"""
-    if parallel and len(tasks) > 1 and (os.cpu_count() or 1) > 1:
+    workers = max(1, min(16, int(os.getenv("ERFLOW_LAYOUT_WORKERS", "1"))))
+    if parallel and len(tasks) > 1 and workers > 1 and (os.cpu_count() or 1) > 1:
         try:
-            with concurrent.futures.ProcessPoolExecutor(max_workers=min(len(tasks), os.cpu_count() or 1)) as ex:
+            with concurrent.futures.ProcessPoolExecutor(max_workers=min(len(tasks), workers, os.cpu_count() or 1)) as ex:
                 return list(ex.map(_anneal_task, tasks))
         except Exception as e:                      # noqa
             print("  （并行失败，改为串行：%s）" % e)

@@ -1,6 +1,8 @@
 """Lightweight agent continue: rule-first, optional model, hard cap."""
 from __future__ import annotations
 
+from request_limits import BusyError
+
 import logging
 import re
 
@@ -66,6 +68,8 @@ def decide_continue(
     ruled = _rule_continue(ctx, used, last_tool, last_result, status)
     if ruled is not None:
         return ruled
+    if last_tool in {"faq.answer", "usage.explain", "usage.explain_channel"}:
+        return None
     return _model_continue(ctx, tools_run, last_tool, status)
 
 
@@ -118,6 +122,9 @@ def _model_continue(
         return None
     try:
         raw = _call_continue_model(ctx, tools_run, last_tool, status, remaining)
+    except BusyError:
+        logger.info("Agent continue model busy; keeping completed results")
+        return None
     except Exception as error:  # noqa: BLE001
         logger.warning("Agent continue model failed (%s)", type(error).__name__)
         return None

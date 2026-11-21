@@ -1,6 +1,8 @@
 """Execute turns: connector-split product tools, or a capped agent loop."""
 from __future__ import annotations
 
+from request_limits import BusyError
+
 from dataclasses import replace
 import logging
 import re
@@ -83,6 +85,8 @@ def _run_sequence(ctx, clauses, steps, start, eligible, record, *, agent_loop: b
             called_at = perf_counter()
             try:
                 result = run_tool(tool, request)
+            except BusyError:
+                raise
             except Exception:
                 logger.exception("Assistant tool failed: %s", tool)
                 text = "这一步执行失败，请稍后重试。" if ctx.locale == "zh" else "This step failed. Please try again."

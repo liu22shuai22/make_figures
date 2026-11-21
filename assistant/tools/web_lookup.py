@@ -1,6 +1,8 @@
 """Controlled external lookup via Wikipedia (no API key)."""
 from __future__ import annotations
 
+from request_limits import BusyError
+
 import json
 import logging
 import re
@@ -359,6 +361,7 @@ def _summary_for_title(title: str, lang: str) -> dict[str, str] | None:
 
 
 def _model_brief_answer(query: str, locale: Locale) -> str | None:
+    # Soft path only: BusyError must not 429 the whole assistant turn.
     try:
         from er_generator import llm_chat, llm_settings
         from llm_providers import apply_active_to_environ, active_provider
@@ -404,6 +407,9 @@ def _model_brief_answer(query: str, locale: Locale) -> str | None:
             system_prompt=system,
             on_usage=record_usage,
         )
+    except BusyError:
+        logger.info("Model brief fallback busy; returning encyclopedia miss")
+        return None
     except Exception:  # noqa: BLE001
         logger.warning("Model brief fallback failed", exc_info=False)
         return None

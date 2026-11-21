@@ -207,10 +207,11 @@ async function postJson(
   const controller = new AbortController()
   const timer = window.setTimeout(() => controller.abort(), options.timeoutMs)
   try {
+    const needsChannel = path.startsWith('/api/generate') || path.startsWith('/api/assistant/')
+    const headers: Record<string, string> = { 'Content-Type': 'application/json', ...(needsChannel ? channelHeaders(options.token) : {}) }
+    if (options.token) headers.Authorization = `Bearer ${options.token}`
     let response: Response
     try {
-      const headers: Record<string, string> = { 'Content-Type': 'application/json', ...channelHeaders(options.token) }
-      if (options.token) headers.Authorization = `Bearer ${options.token}`
       response = await fetch(path, {
         method: 'POST',
         headers,

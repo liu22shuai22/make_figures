@@ -30,12 +30,36 @@ export function loadSession(): AuthSession | null {
 }
 
 function saveSession(session: AuthSession): void {
+  const previous = loadSession()
+  if (previous && previous.token !== session.token) {
+    window.sessionStorage.removeItem('erflow-channels:' + previous.username)
+  }
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify(session))
 }
 
 export function clearSession(session: AuthSession): void {
-  if (loadSession()?.token === session.token) window.localStorage.removeItem(STORAGE_KEY)
+  if (loadSession()?.token === session.token) {
+    window.sessionStorage.removeItem('erflow-channels:' + session.username)
+    window.localStorage.removeItem(STORAGE_KEY)
+  }
 }
+
+// Logout/account switches in another tab must clear this tab's old credentials too.
+window.addEventListener('storage', (event) => {
+  if (event.key !== STORAGE_KEY && event.key !== null) return
+  if (!event.oldValue || event.key === null) {
+    for (const key of Object.keys(window.sessionStorage)) {
+      if (key.startsWith('erflow-channels:')) window.sessionStorage.removeItem(key)
+    }
+    return
+  }
+  try {
+    const old = JSON.parse(event.oldValue) as AuthSession
+    if (typeof old.username === 'string' && loadSession()?.token !== old.token) {
+      window.sessionStorage.removeItem('erflow-channels:' + old.username)
+    }
+  } catch { /* Ignore malformed old sessions. */ }
+})
 
 /** FastAPI 的 422 校验错误数组转成一句话 */
 function validationText(detail: unknown, fallback: string): string {

@@ -1,6 +1,8 @@
 """Route one turn: model structured plan with rule fallback (Phase 1)."""
 from __future__ import annotations
 
+from request_limits import BusyError
+
 import logging
 
 from .knowledge import lookup_faq
@@ -26,6 +28,9 @@ def route(ctx: TurnContext) -> RoutePlan:
     # Keep cheap deterministic intents off the model (check / identity / clear edit).
     if forced is not None:
         return forced
+
+    if lookup_faq(ctx.message, ctx.locale):
+        return rule_route(ctx)
 
     model_plan = try_model_route(ctx)
     if model_plan is not None:
@@ -61,6 +66,8 @@ def can_model_route(ctx: TurnContext) -> bool:
         from llm_providers import active_provider
 
         entry = active_provider()
+    except BusyError:
+        return False
     except Exception:  # noqa: BLE001
         return False
     if not entry:
@@ -79,6 +86,9 @@ def try_model_route(ctx: TurnContext) -> RoutePlan | None:
             return None
         plan.reason = f"model:{plan.reason}" if plan.reason else "model"
         return plan
+    except BusyError:
+        logger.info("Assistant model router busy; using rule route")
+        return None
     except Exception as error:  # noqa: BLE001 — always fall back to rules
         logger.warning("Assistant model router failed (%s); using rule route", type(error).__name__)
         return None
