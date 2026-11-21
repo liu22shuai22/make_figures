@@ -117,12 +117,28 @@ def lookup(ctx: TurnContext) -> TurnResult:
     )
 
 
+_CLAUSE_SPLIT_RE = re.compile(
+    r"(?:顺便|并且|同时|also|\band\b|[，,；;？?！!。.\n])+",
+    re.I,
+)
+
+
 def extract_lookup_query(message: str) -> str:
     text = message.strip()
-    text = _STRIP_RE.sub("", text).strip()
-    text = _TRAIL_RE.sub("", text).strip()
-    text = re.sub(r"^(?:关于|有关)\s*", "", text).strip()
-    return text[:80]
+    # Multi-clause asks ("怎么开始？顺便你知道X吗") → keep the encyclopedia clause.
+    # Splitting also drops a lone leading connector ("顺便介绍一下X").
+    parts = [p.strip() for p in _CLAUSE_SPLIT_RE.split(text) if p and p.strip()]
+    if len(parts) > 1:
+        lookup_parts = [p for p in parts if looks_like_lookup(p)]
+        clause = lookup_parts[-1] if lookup_parts else parts[-1]
+    elif parts:
+        clause = parts[0]
+    else:
+        clause = text
+    clause = _STRIP_RE.sub("", clause).strip()
+    clause = _TRAIL_RE.sub("", clause).strip()
+    clause = re.sub(r"^(?:关于|有关)\s*", "", clause).strip()
+    return clause[:80]
 
 
 def looks_like_lookup(message: str) -> bool:
@@ -291,18 +307,26 @@ def _summary_score(query: str, summary: dict[str, str]) -> float:
         return score
 
     acronym = query.strip()
+    # Nested / event titles that embed the acronym often define the parent topic
+    # in the lead — still reject them for bare acronym asks.
+    if _compound_acronym_title(title, acronym):
+        return -1.0
+    if _YEAR_PREFIX_RE.match(title.strip()):
+        return -1.0
+
     blob = f"{title}\n{extract}"
     defined = _paren_defines_acronym(blob, acronym)
+    bare = bool(
+        re.search(rf"(?<![A-Za-z]){re.escape(acronym)}(?![A-Za-z])", extract[:360], re.I)
+    )
     if defined:
         score += 55.0
-    elif re.search(rf"(?<![A-Za-z]){re.escape(acronym)}(?![A-Za-z])", extract[:360], re.I):
-        score += 20.0
-
-    # Compound acronym titles without a lead definition are almost always side events.
-    if _compound_acronym_title(title, acronym) and not defined:
-        return -1.0
-    if _YEAR_PREFIX_RE.match(title.strip()) and not defined:
-        return -1.0
+    elif bare:
+        # Expanded-name pages often mention the acronym in the lead without "(X)".
+        if acronym.casefold() not in title.casefold():
+            score += 50.0
+        else:
+            score += 20.0
     return score
 
 

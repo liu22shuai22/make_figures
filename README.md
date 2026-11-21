@@ -61,11 +61,7 @@ npm run dev
 
 浏览器打开 `http://127.0.0.1:5173`。开发模式下 `/api` 会代理到后端 `8000` 端口。
 
-### 3. Tests
-
-```bash
-python -m unittest discover -s tests -v
-```
+### 3. Use-case layout benchmark
 
 用例图自动排版可用固定验收集比较改动前后的结果。在仓库根目录运行以下命令，记录每例的重叠、穿框、连线冲突、标签冲突、折点和耗时。
 
@@ -105,7 +101,6 @@ cp smtp.local.example.json smtp.local.json
 ├── assistant/             # 语义沙执行面
 ├── docs/                  # 设计与验收说明
 ├── examples/              # 选课 E-R / 图书借阅用例样例
-├── tests/
 └── frontend/              # Vite + React 工作台
 ```
 
@@ -116,7 +111,6 @@ cp smtp.local.example.json smtp.local.json
 | `python start_backend.py` | 启动后端（可 `--no-reload`） |
 | `cd frontend && npm run dev` | 前端开发服务器 |
 | `cd frontend && npm run build` | 类型检查并构建前端 |
-| `python -m unittest discover -s tests -v` | 运行单元测试 |
 
 ## License
 
