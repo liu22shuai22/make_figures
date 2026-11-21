@@ -408,7 +408,7 @@ export const appCopy = {
 
     usage: {
       title: 'Token 用量',
-      lead: '本机后端的模型调用，按服务商与日期归档，含重试与分批补全。',
+      lead: '当前账号的模型调用，按服务商与日期归档，含重试与分批补全。',
       byChannel: '按服务商',
       byChannelHint: '按调用时启用的渠道归类。切换 DeepSeek / 硅基流动等再生成，会出现分项。',
       channel: '服务商',
@@ -476,7 +476,7 @@ export const appCopy = {
       cn: '国内',
       intl: '国际',
       all: '全部',
-      lead: '在本页接入模型渠道；生成与助手只走当前启用项，密钥保存在本机。',
+      lead: '渠道按账号保存在当前浏览器标签页，关闭标签页后需重新导入。生成和助手使用当前启用渠道，调用时密钥通过 HTTPS 传给服务器。',
       guide: '接入说明',
       guideHide: '收起说明',
       guideIntro: '按下面三步接通即可开始生成，无需再改启动脚本或环境变量。',
@@ -485,7 +485,7 @@ export const appCopy = {
       guideStep3: '新建点「保存并接通」；已有渠道点「保存修改」，换用时再点左侧「接通」。',
       guideGatewayBefore: '若用自建网关',
       guideGatewayAfter:
-        '：本机通常为 http://127.0.0.1:3000/v1，控制台建渠道与令牌后填入本页，再用「探测 / 拉取模型」。',
+        '：在线服务需要公网 HTTPS 接口地址。可在服务商控制台创建渠道与令牌，再用「探测 / 拉取模型」。',
       guideBackup: '「导出 / 导入」可备份渠道或做课堂模板；导入时可选合并或整表替换。',
       refresh: '刷新',
       reading: '读取中…',
@@ -530,7 +530,7 @@ export const appCopy = {
       canConnect: '可接通',
       wiring: '接驳中',
       needLoginTitle: '登录后管理渠道',
-      needLoginHint: '密钥只保存在本机，不会上传。',
+      needLoginHint: '登录后配置自己的渠道。密钥保存在浏览器会话中，调用模型时发送给服务器，服务器不保存密钥。',
       goLogin: '去登录',
       activeAria: '当前启用渠道',
       connected: '已接通',
@@ -1134,7 +1134,7 @@ export const appCopy = {
 
     usage: {
       title: 'Token usage',
-      lead: 'Model calls on this backend, archived by provider and date, including retries.',
+      lead: 'Your account’s model calls, archived by provider and date, including retries.',
       byChannel: 'By provider',
       byChannelHint: 'Grouped by the channel active at call time. Generate again after switching providers to see a split.',
       channel: 'Provider',
@@ -1202,7 +1202,7 @@ export const appCopy = {
       cn: 'China',
       intl: 'Global',
       all: 'All',
-      lead: 'Connect a model channel here. Generation and the assistant use only the active one; keys stay on this machine.',
+      lead: 'Channels are stored per account in this browser tab session. Import again after closing the tab. Keys are sent over HTTPS for model calls.',
       guide: 'Setup guide',
       guideHide: 'Hide guide',
       guideIntro: 'Three steps to get generating — no start-script or environment-variable setup.',
@@ -1257,7 +1257,7 @@ export const appCopy = {
       canConnect: 'Ready',
       wiring: 'Wiring',
       needLoginTitle: 'Sign in to manage channels',
-      needLoginHint: 'Keys stay on this machine and are not uploaded.',
+      needLoginHint: 'Channels stay in this browser tab session. Keys are sent to the server for each model call and are not stored there.',
       goLogin: 'Sign in',
       activeAria: 'Active channel',
       connected: 'Connected',

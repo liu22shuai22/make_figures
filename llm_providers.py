@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
+from request_scope import current_scope
 
 CONFIG_PATH = Path(__file__).with_name("llm.local.json")
 BUNDLE_FORMAT = "erflow-providers"
@@ -277,12 +278,16 @@ def _empty_store() -> dict:
 
 
 def load_store() -> dict:
-    if not CONFIG_PATH.is_file():
-        return _empty_store()
-    try:
-        data = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return _empty_store()
+    scope = current_scope.get()
+    if scope is not None:
+        data = scope.store
+    else:
+        if not CONFIG_PATH.is_file():
+            return _empty_store()
+        try:
+            data = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return _empty_store()
     if not isinstance(data, dict):
         return _empty_store()
     providers = data.get("providers")
@@ -302,6 +307,10 @@ def load_store() -> dict:
 
 
 def save_store(store: dict) -> None:
+    scope = current_scope.get()
+    if scope is not None:
+        scope.store = store
+        return
     CONFIG_PATH.write_text(
         json.dumps(store, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
@@ -371,8 +380,9 @@ def public_provider(entry: dict) -> dict:
 
 
 def public_store(store: dict | None = None) -> dict:
-    data = store or load_store()
+    data = store if store is not None else load_store()
     return {
+        **({"browser_store": data} if current_scope.get() is not None else {}),
         "active_id": data.get("active_id"),
         "providers": [public_provider(item) for item in data.get("providers") or []],
         "presets": [
@@ -386,6 +396,7 @@ def public_store(store: dict | None = None) -> dict:
                 "default_key": value["api_key"],
             }
             for key, value in PRESETS.items()
+            if current_scope.get() is None or not value["base_url"].startswith("http://")
         ],
     }
 
@@ -483,6 +494,8 @@ def apply_active_to_environ() -> None:
 
     Active ready provider wins. Otherwise clear LLM_* so stale env cannot serve traffic.
     """
+    if current_scope.get() is not None:
+        return
     entry = active_provider()
     if not entry or not _text(entry.get("api_key")) or not _text(entry.get("model")):
         clear_llm_environ()
@@ -502,8 +515,12 @@ def apply_active_to_environ() -> None:
 
 def _http_json(url: str, headers: dict, timeout: float = 8) -> Any:
     request = urllib.request.Request(url, headers=headers, method="GET")
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        return json.loads(response.read().decode("utf-8"))
+    from model_transport import model_urlopen
+    with model_urlopen(request, timeout=timeout) as response:
+        payload = response.read(1024 * 1024 + 1)
+        if len(payload) > 1024 * 1024:
+            raise ValueError("模型列表响应过大")
+        return json.loads(payload.decode("utf-8"))
 
 
 def probe_gateway(

@@ -25,7 +25,17 @@ _HOST_NAMES = {
 
 
 def _connect():
-    db = sqlite3.connect(DB_PATH, timeout=1)
+    from request_scope import current_scope
+    from hashlib import sha256
+    scope = current_scope.get()
+    path = DB_PATH
+    if scope is not None:
+        if not scope.username:
+            raise sqlite3.OperationalError("Authenticated usage context required")
+        directory = DB_PATH.parent / "user-usage"
+        directory.mkdir(exist_ok=True)
+        path = directory / (sha256(scope.username.encode()).hexdigest() + ".sqlite3")
+    db = sqlite3.connect(path, timeout=1)
     db.row_factory = sqlite3.Row
     return db
 
@@ -169,9 +179,6 @@ def read_usage():
         "channels": [],
     }
     ensure_usage_schema()
-    if not DB_PATH.exists():
-        return result
-
     with closing(_connect()) as db:
         start = (today - timedelta(days=29)).isoformat()
         if db.execute(

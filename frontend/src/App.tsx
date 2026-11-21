@@ -1,3 +1,4 @@
+import { DEFAULT_RENDER_STYLE, type RenderStyle } from './types'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent } from 'react'
 import EntityCard from './components/EntityCard'
@@ -142,6 +143,7 @@ export default function App({ command, onHome, onUsage, onLogin, username, token
   const [ucPositionsById, setUcPositionsById] = useState<DiagramPositions>()
   const [ucLabelPositionsById, setUcLabelPositionsById] = useState<DiagramPositions>()
   const [format, setFormat] = useState<ImageFormat>('png')
+  const [renderStyle, setRenderStyle] = useState<RenderStyle>(DEFAULT_RENDER_STYLE)
   const [ratio, setRatio] = useState<CanvasRatio>('auto')
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<RenderResult | null>(null)
@@ -280,10 +282,11 @@ export default function App({ command, onHome, onUsage, onLogin, username, token
     ? ucResult !== null && ucResult.signature === `${ucDraftSignature}|${ucResult.format}`
     : result !== null && result.signature === `${draftSignature}|${result.format}`
   const ratioPending = activeResult !== null && activeResult.ratio !== ratio
-  const stale = activeResult !== null && (!sameDraft || activeResult.format !== format || ratioPending)
+  const stylePending = !!activeResult && JSON.stringify(activeResult.style ?? DEFAULT_RENDER_STYLE) !== JSON.stringify(renderStyle)
+  const stale = activeResult !== null && (!sameDraft || activeResult.format !== format || ratioPending || stylePending)
   const activeSavedPositions = isUseCase ? savedUcPositions || savedUcLabelPositions.some(Boolean) : savedPositions
-  const formatOnly = sameDraft && !!activeSavedPositions && !ratioPending && !!activeResult && activeResult.format !== format
-  const ratioOnly = sameDraft && ratioPending && !!activeResult && activeResult.format === format
+  const formatOnly = !stylePending && sameDraft && !!activeSavedPositions && !ratioPending && !!activeResult && activeResult.format !== format
+  const ratioOnly = !stylePending && sameDraft && ratioPending && !!activeResult && activeResult.format === format
   const renderLabel = ratioOnly
     ? t.applyRatio
     : formatOnly
@@ -307,7 +310,7 @@ export default function App({ command, onHome, onUsage, onLogin, username, token
     setLoading(true)
     setError(null)
     try {
-      const response = await renderSpec(toJsonSpec(snapshot, positions, relationPositions), targetFormat, ratio, token)
+      const response = await renderSpec(toJsonSpec(snapshot, positions, relationPositions), targetFormat, ratio, token, renderStyle)
       if (commit && !commit()) return false
       const nextPositions = positions && Object.fromEntries(
         snapshot.entities.map(({ id, name }) => [id, positions[name.trim()]]),
@@ -321,6 +324,7 @@ export default function App({ command, onHome, onUsage, onLogin, username, token
         : undefined
       setRelationPositionsById((current) => current === relationPositionsById ? nextRelationPositions : current)
       const nextResult: RenderResult = {
+        style: { ...renderStyle },
         format: targetFormat,
         ratio,
         signature: `${signatureOf(snapshot, positions, relationPositions)}|${targetFormat}`,
@@ -350,7 +354,7 @@ export default function App({ command, onHome, onUsage, onLogin, username, token
       submitting.current = false
       setLoading(false)
     }
-  }, [format, positionsById, ratio, relationPositionsById, token])
+  }, [renderStyle, format, positionsById, ratio, relationPositionsById, token])
 
   const applyCardinality = useCallback(async (source: SpecDraft, draft: SpecDraft) => {
     if (currentSpec.current !== source || generatingRef.current || submitting.current) return false
@@ -415,7 +419,7 @@ export default function App({ command, onHome, onUsage, onLogin, username, token
     setLoading(true)
     setError(null)
     try {
-      const response = await renderUseCaseSpec(toUseCaseJson(snapshot, positions, labelPositions), targetFormat, ratio, token)
+      const response = await renderUseCaseSpec(toUseCaseJson(snapshot, positions, labelPositions), targetFormat, ratio, token, renderStyle)
       if (commit && !commit()) return false
       const nodes = [
         ...snapshot.actors.map(({ id, name }) => ({ id, name })),
@@ -433,6 +437,7 @@ export default function App({ command, onHome, onUsage, onLogin, username, token
         : undefined
       setUcLabelPositionsById((current) => current === ucLabelPositionsById ? nextLabels : current)
       const nextResult: RenderResult = {
+        style: { ...renderStyle },
         format: targetFormat,
         ratio,
         signature: `${signatureOfUseCase(snapshot, positions, labelPositions)}|${targetFormat}`,
@@ -459,7 +464,7 @@ export default function App({ command, onHome, onUsage, onLogin, username, token
       submitting.current = false
       setLoading(false)
     }
-  }, [format, ratio, token, ucPositionsById, ucLabelPositionsById])
+  }, [renderStyle, format, ratio, token, ucPositionsById, ucLabelPositionsById])
 
   const renderCurrent = () => {
     if (ratioOnly) void applyRatio()
@@ -1187,6 +1192,35 @@ export default function App({ command, onHome, onUsage, onLogin, username, token
     })
   }
 
+  const handleVectorExport = async (exportFormat: 'pdf', all: boolean) => {
+    if (!token || !activeResult || stale || submitting.current || generatingRef.current) return
+    submitting.current = true
+    setLoading(true)
+    setError(null)
+    const selectedTab = tab
+    try {
+      const response = isUseCase
+        ? await renderUseCaseSpec(toUseCaseJson(ucSpec, savedUcPositions, savedUcLabelPositions),
+          exportFormat, ratio, token, renderStyle)
+        : await renderSpec(toJsonSpec(spec, savedPositions, savedRelationPositions), exportFormat, ratio, token, renderStyle)
+      const images = all ? [response.overview, ...response.entities]
+        : [response.entities.find(image => image.entity === selectedTab) ?? response.overview]
+      images.forEach((image, index) => {
+        window.setTimeout(() => downloadDataUrl(image.url, image.filename), index * 400)
+      })
+    } catch (caught) {
+      setError({
+        title: copy.current.layoutFailed,
+        detail: caught instanceof Error ? caught.message : copy.current.unknownError,
+        action: caught instanceof ApiError && caught.status === 401 ? 'login' : undefined,
+        keptPreview: true,
+      })
+    } finally {
+      submitting.current = false
+      setLoading(false)
+    }
+  }
+
   return (
     <div className="app">
       <header className="topbar">
@@ -1788,6 +1822,9 @@ export default function App({ command, onHome, onUsage, onLogin, username, token
             formatOnly={formatOnly}
             hasSavedLayout={!!activeSavedPositions}
             renderLabel={renderLabel}
+            renderStyle={renderStyle}
+            onStyleChange={setRenderStyle}
+            stylePending={stylePending}
             format={format}
             onFormatChange={setFormat}
             ratio={ratio}
@@ -1795,6 +1832,7 @@ export default function App({ command, onHome, onUsage, onLogin, username, token
             onRatioChange={setRatio}
             onApplyRatio={() => void applyRatio()}
             onDownloadAll={handleDownloadAll}
+            onVectorExport={(exportFormat, all) => void handleVectorExport(exportFormat, all)}
             onDownloadOne={handleDownload}
             onLoadSample={() => void handleLoadSample()}
             sampleLabel={isUseCase ? t.loadSampleUc : t.loadSampleEr}

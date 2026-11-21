@@ -1,4 +1,6 @@
 import base64
+import binascii
+import os
 from contextlib import redirect_stdout
 import json
 import logging
@@ -10,7 +12,10 @@ from threading import BoundedSemaphore
 from typing import Annotated, Literal
 from uuid import uuid4
 
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi.responses import JSONResponse
+from request_scope import RequestScope, current_scope
+from request_limits import admit, BusyError
 from pydantic import BaseModel, StringConstraints
 from token_usage import read_usage, record_usage
 from auth import (
@@ -38,8 +43,8 @@ from auth import (
 
 app = FastAPI(title="ERFlow")
 logger = logging.getLogger(__name__)
-render_slot = BoundedSemaphore(1)
-generate_slot = BoundedSemaphore(1)
+render_slot = BoundedSemaphore(max(1, min(16, int(os.getenv("ERFLOW_RENDER_CONCURRENCY", "2")))))
+generate_slot = BoundedSemaphore(max(1, min(16, int(os.getenv("ERFLOW_MODEL_CONCURRENCY", "4")))))
 usecase_review_slot = BoundedSemaphore(1)
 worker_script = Path(__file__).resolve()
 RENDER_REQUEST_LIMIT = 128 * 1024
@@ -56,6 +61,63 @@ WEB_GENERATION_RULES = f"""网页绘图的硬性约束优先于上面的通用�
 - 如果超限，重新规划核心模型，合并含义重复的概念，并省略自行补充的外围内容。
 - 每个实体或联系最多 12 个属性（含主键），实体、联系和属性名称最多 24 个可显示字符。
 - 输出紧凑 JSON，省略缩进与换行。"""
+
+
+@app.middleware("http")
+async def isolate_user_requests(request: Request, call_next):
+    username = None
+    token = bearer_token(request.headers.get("authorization"))
+    if token:
+        try:
+            username = session_username(token)
+        except AuthError:
+            pass
+    if request.method in {"POST", "PUT", "PATCH"}:
+        chunks = []
+        size = 0
+        async for chunk in request.stream():
+            size += len(chunk)
+            if size > 256 * 1024:
+                return JSONResponse({"detail": "请求内容过大"}, status_code=413)
+            chunks.append(chunk)
+        request._body = b"".join(chunks)
+    scope = RequestScope(username)
+    marker = current_scope.set(scope)
+    try:
+        header = request.headers.get("x-erflow-providers", "")
+        if header:
+            if not username:
+                return JSONResponse({"detail": "请先登录"}, status_code=401)
+            if len(header) > 32_000:
+                return JSONResponse({"detail": "渠道配置过大，请减少保存的渠道"}, status_code=413)
+            try:
+                store = json.loads(base64.b64decode(header, validate=True).decode("utf-8"))
+                if not isinstance(store, dict) or not isinstance(store.get("providers"), list):
+                    raise ValueError
+                if len(store["providers"]) > 100 or any(not isinstance(p, dict) for p in store["providers"]):
+                    raise ValueError
+                scope.store = store
+            except (ValueError, UnicodeError, binascii.Error, RecursionError):
+                return JSONResponse({"detail": "渠道配置格式无效"}, status_code=422)
+        path = request.url.path
+        kind = ("render" if path in {"/api/render", "/api/render-usecase"} else
+                "auth" if path in {"/api/auth/login", "/api/auth/register", "/api/auth/email-code"} else
+                "model" if path.startswith("/api/generate") or path.startswith("/api/assistant/") and path != "/api/assistant/traces"
+                or path in {"/api/providers/probe-gateway", "/api/providers/list-models"} else None)
+        if kind:
+            owner = ("account:" + username) if username else ("ip:" + (request.client.host if request.client else "unknown"))
+            with admit(owner, kind):
+                response = await call_next(request)
+        else:
+            response = await call_next(request)
+        response.headers["Cache-Control"] = "no-store"
+        return response
+    except BusyError as error:
+        return JSONResponse({"detail": str(error)}, status_code=429, headers={"Retry-After": "5"})
+    except sqlite3.Error:
+        return JSONResponse({"detail": "服务暂忙，请稍后重试"}, status_code=503)
+    finally:
+        current_scope.reset(marker)
 
 
 class GenerateRequest(BaseModel):
@@ -176,7 +238,7 @@ def require_render_account(authorization: Annotated[str | None, Header()] = None
         raise HTTPException(status_code=401, detail="请先登录，再生成或排版 E-R 图") from None
 
 
-@app.get("/api/usage")
+@app.get("/api/usage", dependencies=[Depends(require_render_account)])
 def get_usage():
     from token_usage import ensure_usage_schema
 
@@ -511,7 +573,7 @@ def generate_usecase(request: GenerateRequest):
 
 @app.post("/api/render")
 def render(spec: dict, username: Annotated[str, Depends(require_render_account)],
-           format: Literal["png", "svg"] = "png",
+           format: Literal["png", "svg", "pdf"] = "png",
            aspect: Literal["auto", "16:9", "4:3", "1:1", "9:16"] = "auto"):
     request = render_request_body(spec, format, aspect)
     if len(request) > RENDER_REQUEST_LIMIT:
@@ -544,7 +606,7 @@ def render(spec: dict, username: Annotated[str, Depends(require_render_account)]
 
 @app.post("/api/render-usecase")
 def render_usecase(spec: dict, username: Annotated[str, Depends(require_render_account)],
-                   format: Literal["png", "svg"] = "png",
+                   format: Literal["png", "svg", "pdf"] = "png",
                    aspect: Literal["auto", "16:9", "4:3", "1:1", "9:16"] = "auto"):
     request = render_request_body(spec, format, aspect, kind="usecase")
     if len(request) > RENDER_REQUEST_LIMIT:
@@ -663,13 +725,43 @@ def read_positions(spec, model):
     return ordered
 
 
+def read_render_style(spec):
+    import os
+    import er_generator as er
+    import usecase_generator as uc
+
+    style = spec.get("renderStyle", {})
+    if not isinstance(style, dict):
+        raise er.SpecError("绘图样式必须是对象")
+    fonts = {"simsun": "simsun.ttc", "simhei": "simhei.ttf", "msyh": "msyh.ttc",
+             "simkai": "simkai.ttf", "simfang": "simfang.ttf"}
+    name = style.get("font", "simsun")
+    size = style.get("fontSize", 10.5)
+    width = style.get("lineWidth", 0.5)
+    if not isinstance(name, str) or name not in fonts:
+        raise er.SpecError("不支持的字体")
+    if type(size) not in (int, float) or size not in (9, 10.5, 12, 14, 16, 18):
+        raise er.SpecError("字号须选择 9、10.5、12、14、16 或 18 磅")
+    if type(width) not in (int, float) or width not in (0.25, 0.5, 0.75, 1, 1.5, 2):
+        raise er.SpecError("线宽须选择 0.25、0.5、0.75、1、1.5 或 2 磅")
+    font = Path(os.environ.get("WINDIR", "C:/Windows")) / "Fonts" / fonts[name]
+    if not font.is_file():
+        if name != "simsun":
+            raise er.SpecError("服务器未安装所选字体")
+        font = Path(er.find_font())
+    er.FONT_SIZE = uc.USECASE_TEXT_SIZE = float(size)
+    er.LINE_W = uc.USECASE_LINE_WIDTH = float(width)
+    return str(font)
+
+
 def render_in_worker(request):
     from er_generator import SpecError, matplotlib, normalize_spec, render_spec
 
     image_format = request["format"]
-    mime_type = {"png": "image/png", "svg": "image/svg+xml"}[image_format]
+    mime_type = {"png": "image/png", "svg": "image/svg+xml", "pdf": "application/pdf"}[image_format]
     try:
         spec = request["spec"]
+        font = read_render_style(spec)
         model = normalize_spec(spec)
         validate_web_spec(model)
         positions = read_positions(spec, model)
@@ -689,8 +781,8 @@ def render_in_worker(request):
         canvas_ratio = None if aspect == "auto" else tuple(map(int, aspect.split(":")))
         large = (len(model["ents"]) > 15 or len(model["rels"]) > 30
                  or sum(len(r["attrs"]) for r in model["rels"]) > 160)
-        with matplotlib.rc_context({"text.parse_math": False, "text.usetex": False, "svg.fonttype": "path"}):
-            diagrams = render_spec(model, image_format=image_format, effort=0.5,
+        with matplotlib.rc_context({"text.parse_math": False, "text.usetex": False, "svg.fonttype": "path", "pdf.fonttype": 42}):
+            diagrams = render_spec(model, image_format=image_format, font=font, effort=0.5,
                                    time_limit=10, parallel=False, positions=positions,
                                    layout_budget=32.0 if large else 20.0, canvas_ratio=canvas_ratio,
                                    relation_positions=relation_positions)
@@ -715,17 +807,18 @@ def render_usecase_in_worker(request):
     )
 
     image_format = request["format"]
-    mime_type = {"png": "image/png", "svg": "image/svg+xml"}[image_format]
+    mime_type = {"png": "image/png", "svg": "image/svg+xml", "pdf": "application/pdf"}[image_format]
     try:
         spec = request["spec"]
+        font = read_render_style(spec)
         model = normalize_usecase_spec(spec)
         positions = read_usecase_positions(spec, model)
         label_positions = read_dependency_label_positions(spec, model)
         aspect = request.get("aspect", "auto")
         canvas_ratio = None if aspect == "auto" else tuple(map(int, aspect.split(":")))
-        with matplotlib.rc_context({"text.parse_math": False, "text.usetex": False, "svg.fonttype": "path"}):
+        with matplotlib.rc_context({"text.parse_math": False, "text.usetex": False, "svg.fonttype": "path", "pdf.fonttype": 42}):
             diagrams = render_usecase_spec(
-                model, image_format=image_format, canvas_ratio=canvas_ratio, positions=positions,
+                model, image_format=image_format, font=font, canvas_ratio=canvas_ratio, positions=positions,
                 label_positions=label_positions,
             )
     except (SpecError, SpecSizeError) as error:

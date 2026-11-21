@@ -75,7 +75,7 @@ python -X utf8 benchmark_usecase.py --baseline benchmarks/usecase_baseline.json 
 
 | File | Purpose |
 | --- | --- |
-| `llm.local.json` | 本地模型渠道与密钥（已 gitignore） |
+| `llm.local.json` | 命令行本地模型配置（已 gitignore） |
 | `smtp.local.json` | 注册验证码邮件 SMTP（已 gitignore） |
 | `smtp.local.example.json` | SMTP 配置模板 |
 | `auth.sqlite3` / `token-usage.sqlite3` | 本地运行时数据（已 gitignore） |
@@ -86,7 +86,17 @@ python -X utf8 benchmark_usecase.py --baseline benchmarks/usecase_baseline.json 
 cp smtp.local.example.json smtp.local.json
 ```
 
-也可在工作台打开 **API 平台** 接入 / 切换模型渠道，无需改代码。
+网页用户在 **API 平台** 导入自己的渠道。渠道和密钥按账号保存在当前标签页的 sessionStorage 中，刷新页面仍可使用，标签页会话结束后需重新导入。调用时通过 HTTPS 将当前渠道传给后端，后端在单次请求内使用密钥。原有服务器配置继续用于命令行调用；网页账号需自行导入渠道。
+
+用量按账号记录在 `user-usage/`。请求级密钥通过 ContextVar 隔离，执行面和生成接口共用当前请求的渠道。渠道配置响应设置 `Cache-Control: no-store`。
+
+模型地址须为公网 HTTPS、443 端口。服务器直连经过检查的 IP，并验证原始域名的 TLS 证书。内网地址、回环、链路本地地址和重定向会被拒绝。当系统 DNS 返回 198.18/15 代理虚拟地址时，通过 Cloudflare 的 HTTPS DNS 查询真实 A 记录，检查结果后固定 IP 连接。生产环境需使用正常公网 DNS，并在出站防火墙限制内网与云元数据访问。
+
+并发准入由 `service-limits.sqlite3` 协调同机多进程。默认模型任务上限 4、排版上限 2，每个账号每类任务同时 1 个。可通过 `ERFLOW_MODEL_CONCURRENCY` 和 `ERFLOW_RENDER_CONCURRENCY` 调整，范围 1–16。每分钟模型请求最多 30 次、排版 60 次、登录注册及验证码共 10 次。忙碌时返回 429 与 Retry-After。任务异常会释放占用，进程退出后遗留占用在 240 秒后过期。
+
+部署时使用同一份可写的运行数据目录、HTTPS 和受信任的反向代理。反向代理需接纳最长 32 KB 的渠道请求头，并限制请求体大小。账号用量、登录记录和准入数据库需持久化。多台服务器扩容时需将同机 SQLite 准入迁移为共享服务。
+
+回归检查可运行 `python -m unittest discover -s tests -p test_multiuser.py`。
 
 ## Project layout
 
@@ -114,4 +124,6 @@ cp smtp.local.example.json smtp.local.json
 
 ## License
 
-暂未指定开源许可证。图标素材见 `frontend/src/assets/providers/LOBE_ICONS_LICENSE`。
+本项目以 [MIT License](LICENSE) 发布。
+
+第三方图标素材仍按其原许可证使用，见 `frontend/src/assets/providers/LOBE_ICONS_LICENSE`。

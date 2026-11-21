@@ -1,3 +1,4 @@
+import { channelHeaders, saveBrowserChannels } from './channelSession'
 /** API 平台：New API 风格多模型渠道接入 */
 
 export interface ProviderPreset {
@@ -56,11 +57,13 @@ async function authFetch(path: string, token: string, init?: RequestInit) {
     ...init,
     headers: {
       'Content-Type': 'application/json',
+      ...channelHeaders(token, true),
       Authorization: `Bearer ${token}`,
       ...(init?.headers || {}),
     },
   })
   const data = await readJson(response)
+  if (response.ok) saveBrowserChannels(token, data)
   return { response, data }
 }
 

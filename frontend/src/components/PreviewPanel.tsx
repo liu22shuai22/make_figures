@@ -1,10 +1,13 @@
 import { useState } from 'react'
 import CanvasRatioSelect from './CanvasRatioSelect'
-import type { CanvasRatio, DiagramKind, DiagramLayout, ImageFormat, RenderResult } from '../types'
+import type { CanvasRatio, DiagramKind, DiagramLayout, ImageFormat, RenderResult, RenderStyle } from '../types'
 import DragOverlay from './DragOverlay'
 import { useLocale } from '../LocaleContext'
 
 interface PreviewPanelProps {
+  renderStyle: RenderStyle
+  stylePending: boolean
+  onStyleChange: (style: RenderStyle) => void
   result: RenderResult | null
   loading: boolean
   generating: boolean
@@ -28,6 +31,7 @@ interface PreviewPanelProps {
   onMoveEntity: (entity: string, x: number, y: number) => void
   onMoveRelation: (index: number, x: number, y: number) => void
   onDownloadAll: () => void
+  onVectorExport: (format: 'pdf', all: boolean) => void
   onDownloadOne: (url: string, filename: string) => void
   onLoadSample?: () => void
   sampleLabel?: string
@@ -37,6 +41,9 @@ interface PreviewPanelProps {
 }
 
 export default function PreviewPanel({
+  renderStyle,
+  stylePending,
+  onStyleChange,
   result,
   loading,
   generating,
@@ -59,6 +66,7 @@ export default function PreviewPanel({
   onMoveEntity,
   onMoveRelation,
   onDownloadAll,
+  onVectorExport,
   onDownloadOne,
   onLoadSample,
   sampleLabel,
@@ -123,6 +131,31 @@ export default function PreviewPanel({
 
   return (
     <section className="panel preview" id="preview-panel">
+      <div className="foot-settings" style={{ padding: '10px 14px' }}>
+        <label className="canvas-ratio">{locale === 'zh' ? '字体' : 'Font'}
+          <select value={renderStyle.font} disabled={loading || generating}
+            onChange={event => onStyleChange({ ...renderStyle, font: event.target.value as RenderStyle['font'] })}>
+            {([['simsun', '宋体'], ['simhei', '黑体'], ['msyh', '微软雅黑'], ['simkai', '楷体'], ['simfang', '仿宋']] as const)
+              .map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          </select>
+        </label>
+        <label className="canvas-ratio">{locale === 'zh' ? '字号' : 'Font size'}
+          <select value={renderStyle.fontSize} disabled={loading || generating}
+            onChange={event => onStyleChange({ ...renderStyle, fontSize: Number(event.target.value) })}>
+            {[[9, '小五 · 9 pt'], [10.5, '五号 · 10.5 pt'], [12, '小四 · 12 pt'],
+              [14, '四号 · 14 pt'], [16, '三号 · 16 pt'], [18, '小三 · 18 pt']]
+              .map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          </select>
+        </label>
+        <label className="canvas-ratio">{locale === 'zh' ? '线宽' : 'Line width'}
+          <select value={renderStyle.lineWidth} disabled={loading || generating}
+            onChange={event => onStyleChange({ ...renderStyle, lineWidth: Number(event.target.value) })}>
+            {[0.25, 0.5, 0.75, 1, 1.5, 2].map(value => <option key={value} value={value}>{value} pt</option>)}
+          </select>
+        </label>
+        {stylePending && <button type="button" className="btn btn-sm" disabled={loading || generating || blocked}
+          onClick={onRender}>{locale === 'zh' ? '应用样式' : 'Apply style'}</button>}
+      </div>
       <div className="preview-head">
         <div className="tabs" role="tablist" aria-label={p.tabsAria}>
           {tabs.map((entry) => (
@@ -392,17 +425,27 @@ export default function PreviewPanel({
                 </div>
                 <CanvasRatioSelect ratio={ratio} onChange={onRatioChange} disabled={loading || generating} />
                 {ratioPending && (
-                  <button type="button" className="btn btn-sm" onClick={onApplyRatio} disabled={loading || generating}>
+                  <button type="button" className="btn btn-sm" onClick={stylePending ? onRender : onApplyRatio} disabled={loading || generating}>
                     {p.applyRatio}
                   </button>
                 )}
               </div>
               <div className="foot-download">
+                <button type="button" className="btn btn-sm"
+                  disabled={!active || loading || generating || stale || !loggedIn}
+                  title={stale ? (locale === 'zh' ? '请先重新排版以应用当前修改' : 'Apply edits by laying out first') : undefined}
+                  onClick={() => onVectorExport('pdf', false)}>
+                  {locale === 'zh' ? '导出当前 PDF' : 'Export current PDF'}
+                </button>
+                {total > 1 && <button type="button" className="link-btn"
+                  disabled={loading || generating || stale || !loggedIn} onClick={() => onVectorExport('pdf', true)}>
+                  {locale === 'zh' ? '全部 PDF' : 'All PDF'}
+                </button>}
                 <button
                   type="button"
                   className="btn btn-sm btn-primary"
                   onClick={() => active && onDownloadOne(active.url, active.filename)}
-                  disabled={!active || loading || ratioPending}
+                  disabled={!active || loading || ratioPending || stylePending}
                   data-testid="download-current"
                 >
                   {p.downloadCurrent}
@@ -411,7 +454,7 @@ export default function PreviewPanel({
                   type="button"
                   className="link-btn"
                   onClick={onDownloadAll}
-                  disabled={!total || loading || ratioPending}
+                  disabled={!total || loading || ratioPending || stylePending}
                   data-testid="download-all"
                 >
                   {p.downloadAllCount(total)}

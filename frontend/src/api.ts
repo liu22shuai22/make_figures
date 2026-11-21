@@ -1,5 +1,7 @@
+import { channelHeaders } from './channelSession'
 import type {
   CanvasRatio,
+  RenderStyle,
   DiagramLayout,
   ImageFormat,
   JsonSpec,
@@ -207,7 +209,7 @@ async function postJson(
   try {
     let response: Response
     try {
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+      const headers: Record<string, string> = { 'Content-Type': 'application/json', ...channelHeaders(options.token) }
       if (options.token) headers.Authorization = `Bearer ${options.token}`
       response = await fetch(path, {
         method: 'POST',
@@ -310,9 +312,9 @@ interface RenderResponse {
  * POST /api/render，查询参数指定图片格式和整体图画布比例。
  * 请求体直接是规格对象；响应里 overview/entities 的 url 都是 data URL。
  */
-export async function renderSpec(payload: JsonSpec, format: ImageFormat, ratio: CanvasRatio, token: string): Promise<RenderResponse> {
+export async function renderSpec(payload: JsonSpec, format: ImageFormat | 'pdf', ratio: CanvasRatio, token: string, style?: RenderStyle): Promise<RenderResponse> {
   const query = new URLSearchParams({ format, aspect: ratio })
-  const result = await postJson(`/api/render?${query}`, payload, {
+  const result = await postJson(`/api/render?${query}`, { ...payload, renderStyle: style }, {
     token,
     timeoutMs: RENDER_TIMEOUT_MS,
     timeoutMessage: '请求超时（90 秒），后端可能正忙，请稍后重试。',
@@ -450,12 +452,13 @@ export async function generateUseCaseSpec(text: string, token: string): Promise<
 /** POST /api/render-usecase */
 export async function renderUseCaseSpec(
   payload: UseCaseJsonSpec,
-  format: ImageFormat,
+  format: ImageFormat | 'pdf',
   ratio: CanvasRatio,
   token: string,
+  style?: RenderStyle,
 ): Promise<RenderResponse> {
   const query = new URLSearchParams({ format, aspect: ratio })
-  const result = await postJson(`/api/render-usecase?${query}`, payload, {
+  const result = await postJson(`/api/render-usecase?${query}`, { ...payload, renderStyle: style }, {
     token,
     timeoutMs: RENDER_TIMEOUT_MS,
     timeoutMessage: '请求超时（90 秒），后端可能正忙，请稍后重试。',

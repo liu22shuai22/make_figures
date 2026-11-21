@@ -587,7 +587,7 @@ export default function Welcome({
                 {t.login}
               </button>
             )}
-            <button type="button" className="btn top-go" onClick={onOpen} data-testid="enter-workbench">
+            <button type="button" className="btn btn-ghost top-go" onClick={onOpen} data-testid="enter-workbench">
               {t.enterWorkbench}
             </button>
           </div>

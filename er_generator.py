@@ -561,34 +561,51 @@ def _read_siliconflow_stream(response, deadline, usage=None):
     raise LLMTimeoutError("已达到模型生成等待上限，请稍后重试")
 
 
+def _parse_chat_payload(payload, usage=None):
+    data = json.loads(payload)
+    if usage is not None and isinstance(data, dict) and isinstance(data.get("usage"), dict):
+        usage.update(data["usage"])
+    return data
+
+
 def _http_json(url, headers, body, timeout=180, *, stream=None, on_usage=None):
     req = urllib.request.Request(url, data=json.dumps(body).encode("utf-8"), headers=headers, method="POST")
     usage = {} if on_usage is not None else None
     try:
         deadline = time.monotonic() + timeout if stream else math.inf
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        from model_transport import model_urlopen
+        with model_urlopen(req, timeout=timeout) as resp:
             if stream and getattr(resp, "headers", {}).get("Content-Type", "").lower().startswith("text/event-stream"):
                 return _read_siliconflow_stream(resp, deadline, usage)
             limit = 1024 * 1024
             payload = resp.read(limit + 1)
             if len(payload) > limit:
                 raise LLMError("大模型接口的响应过大")
-            data = json.loads(payload)
-            if usage is not None and isinstance(data, dict) and isinstance(data.get("usage"), dict):
-                usage.update(data["usage"])
-            return data
+            return _parse_chat_payload(payload, usage)
     except urllib.error.HTTPError as e:
         e.close()
         if stream is not None and e.code in (502, 503, 504):
             raise LLMUpstreamUnavailableError(f"大模型服务暂时不可用（HTTP {e.code}）") from None
         raise LLMError(f"大模型接口返回错误（HTTP {e.code}）") from None
     except urllib.error.URLError as e:
-        if isinstance(e.reason, (ConnectionResetError, ConnectionAbortedError)):
+        if isinstance(e.reason, IncompleteRead) and e.reason.partial:
+            try:
+                return _parse_chat_payload(e.reason.partial, usage)
+            except (ValueError, RecursionError, TypeError):
+                pass
+        if isinstance(e.reason, (ConnectionResetError, ConnectionAbortedError, IncompleteRead)):
             raise LLMConnectionClosedError(f"模型连接提前关闭（{type(e.reason).__name__}）") from None
         if isinstance(e.reason, TimeoutError):
             raise LLMTimeoutError(f"等待大模型响应超过 {timeout:.0f} 秒，请稍后重试") from None
         raise LLMError("无法连接大模型接口") from None
-    except (ConnectionResetError, ConnectionAbortedError, IncompleteRead) as error:
+    except IncompleteRead as error:
+        if error.partial:
+            try:
+                return _parse_chat_payload(error.partial, usage)
+            except (ValueError, RecursionError, TypeError):
+                pass
+        raise LLMConnectionClosedError(f"模型连接提前关闭（IncompleteRead）") from None
+    except (ConnectionResetError, ConnectionAbortedError) as error:
         raise LLMConnectionClosedError(f"模型连接提前关闭（{type(error).__name__}）") from None
     except TimeoutError:
         raise LLMTimeoutError(f"等待大模型响应超过 {timeout:.0f} 秒，请稍后重试") from None
@@ -637,13 +654,13 @@ def llm_chat(messages, provider, model, api_key, base_url, *, timeout=180, syste
             "messages": [{"role": "system", "content": system_prompt}] + messages}
     siliconflow = endpoint == SILICONFLOW_BASE_URL
     headers = {"content-type": "application/json", "Authorization": "Bearer " + api_key}
-    if siliconflow:
-        body["stream"] = stream
-        headers["Accept"] = "text/event-stream" if stream else "application/json"
-        if model == "deepseek-ai/DeepSeek-V4.1-Flash":
-            body["enable_thinking"] = False
-    data = _http_json(url, headers, body, timeout=timeout, stream=stream if siliconflow else None,
-                      on_usage=notify)
+    # OpenAI 兼容口（含 DeepSeek）与硅基流动一样走 stream 开关；原先仅硅基启用，
+    # 导致 DeepSeek 断连时日志写「改用流式」实际仍一次读完 JSON，IncompleteRead 无法抢救半包。
+    body["stream"] = bool(stream)
+    headers["Accept"] = "text/event-stream" if stream else "application/json"
+    if siliconflow and model == "deepseek-ai/DeepSeek-V4.1-Flash":
+        body["enable_thinking"] = False
+    data = _http_json(url, headers, body, timeout=timeout, stream=bool(stream), on_usage=notify)
     try:
         content = data["choices"][0]["message"]["content"]
     except (KeyError, IndexError, TypeError):
@@ -654,6 +671,20 @@ def llm_chat(messages, provider, model, api_key, base_url, *, timeout=180, syste
 
 
 def llm_settings(args=None):
+    from request_scope import current_scope
+    if current_scope.get() is not None:
+        from llm_providers import active_provider
+        entry = active_provider()
+        if not entry or not entry.get("api_key") or not entry.get("model"):
+            raise LLMConfigurationError("请在 API 平台导入并启用你自己的模型渠道")
+        base_url = entry.get("base_url") or (
+            "https://api.anthropic.com" if entry["kind"] == "anthropic" else "https://api.openai.com/v1")
+        from model_transport import validate_endpoint
+        try:
+            validate_endpoint(base_url)
+        except ValueError as error:
+            raise LLMConfigurationError(str(error)) from None
+        return entry["kind"], entry["model"], entry["api_key"], base_url
     provider = getattr(args, "provider", None) or os.environ.get("LLM_PROVIDER")
     key = getattr(args, "api_key", None)
     if not provider:

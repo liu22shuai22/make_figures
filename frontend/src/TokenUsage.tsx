@@ -1,3 +1,4 @@
+import { loadSession } from './auth'
 import { useEffect, useMemo, useState } from 'react'
 import BrandMark from './components/BrandMark'
 import UsageChart from './components/UsageChart'
@@ -44,7 +45,8 @@ export default function TokenUsage({ onBack }: Props) {
     setError(false)
     void (async () => {
       try {
-        const response = await fetch('/api/usage', { signal: controller.signal, cache: 'no-store' })
+        const response = await fetch('/api/usage', { signal: controller.signal, cache: 'no-store',
+          headers: { Authorization: `Bearer ${loadSession()?.token ?? ''}` } })
         if (!response.ok) throw new Error(`HTTP ${response.status}`)
         const data: Usage = await response.json()
         if (controller.signal.aborted) return

@@ -57,6 +57,10 @@ USECASE_SYSTEM_PROMPT = """你是软件需求分析专家。用户会用自然�
 2. 参与者用角色名（读者、管理员），不用真实人名；通常 1–6 个。
 3. 用例用动宾短语（借书、查询馆藏），简短；通常 2–12 个。参与者与用例名称不要重名。
 4. links 表示通信关联：哪个参与者使用哪个用例；每个对外用例至少连一个参与者。
+   secondary 外部系统同样必须关联其实际协助的用例。例如「核验时调用省A政务系统」，
+   应把「省A政务系统」关联到「跨省数据核验」或其实际执行的子用例。
+   原文明确列出的外部系统要保留并表达职责。纯内部组件按系统边界判断，在 reviewNotes 中说明待确认。
+   输出前逐一检查 actors 中每个参与者至少出现在一条 links 中，不能以用例依赖代替参与者关联。
 5. dependencies 可选，仅用例之间：
    - include：基用例 from 包含 to（虚线箭头 + «include»）
    - extend：扩展用例 from 扩展 to（虚线箭头 + «extend»）
@@ -280,10 +284,11 @@ def public_usecase_spec(model):
 
 
 def validate_usecase_workflow(model):
+    issues = []
     linked_actors = {link["actor"] for link in model["links"]}
     for index, actor in enumerate(model["actors"]):
         if index not in linked_actors:
-            raise SpecError(f"参与者「{actor['name']}」没有关联用例")
+            issues.append(f"参与者「{actor['name']}」没有关联用例")
 
     graph = nx.Graph()
     graph.add_nodes_from(range(len(model["use_cases"])))
@@ -292,14 +297,16 @@ def validate_usecase_workflow(model):
     for component in nx.connected_components(graph):
         if not component & linked_cases:
             names = "、".join(model["use_cases"][index]["name"] for index in sorted(component))
-            raise SpecError(f"用例「{names}」没有连接到任何参与者的业务流程")
+            issues.append(f"用例「{names}」没有连接到任何参与者的业务流程")
 
     for kind in ("include", "generalize"):
         dependencies = nx.DiGraph((dep["from"], dep["to"]) for dep in model["dependencies"] if dep["kind"] == kind)
         if not nx.is_directed_acyclic_graph(dependencies):
             cycle = nx.find_cycle(dependencies)
             names = " → ".join(model["use_cases"][index]["name"] for index in [cycle[0][0], *(target for _, target in cycle)])
-            raise SpecError(f"{kind} 依赖形成循环：{names}")
+            issues.append(f"{kind} 依赖形成循环：{names}")
+    if issues:
+        raise SpecError("。".join(issues))
 
 
 def _parse_generated_usecase(reply):
@@ -407,44 +414,82 @@ def usecase_from_text(text, args=None, *, timeout=90, total_timeout=120, on_usag
     print("正在请求大模型生成用例图规格（%s / %s）……" % (provider, model_name), flush=True)
     deadline = time.monotonic() + total_timeout
     siliconflow = provider == "openai" and (base_url or "").rstrip("/") == SILICONFLOW_BASE_URL
-    modes = (False, True, False) if siliconflow else (True, True)
+    # 硅基：先非流式再流式；DeepSeek 等 OpenAI 兼容口：先流式（可半包续写），再一次返回。
+    modes = (False, True, False) if siliconflow else (True, False)
 
     def request_model(request_messages, system_prompt, request_timeout, *, stream):
         return llm_chat(request_messages, provider, model_name, key, base_url, timeout=min(timeout, request_timeout),
                         system_prompt=system_prompt, stream=stream, on_usage=on_usage)
 
-    for attempt, stream in enumerate(modes, start=1):
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            raise LLMTimeoutError("已达到用例图生成等待上限，请稍后重试")
-        can_retry = attempt < len(modes)
-        # 给同一入口的下一次尝试保留时间，避免首次超时耗掉整个预算。
-        request_timeout = min(timeout, remaining / 2 if siliconflow and can_retry else remaining)
-        try:
-            reply = request_model(messages, prompt, request_timeout, stream=stream)
-        except (LLMConnectionClosedError, LLMTimeoutError, LLMUpstreamUnavailableError) as error:
-            if isinstance(error, LLMStreamInterruptedError) and error.partial:
-                try:
-                    return _parse_generated_usecase(error.partial)
-                except SpecError:
-                    pass
-                if siliconflow:
-                    recovered = _resume_usecase(error.partial, request_model, messages, prompt, deadline)
-                    if recovered is not None:
-                        return recovered
-            if not can_retry or deadline - time.monotonic() <= 1:
-                raise
-            response_mode = "流式" if modes[attempt] else "一次返回"
-            print(f"用例规格请求未完成（{error}），正在同一入口改用{response_mode}响应重试……", flush=True)
-            continue
+    last_reply = ""
 
+    def request_spec(request_messages, phase_deadline):
+        nonlocal last_reply
+        for attempt, stream in enumerate(modes, start=1):
+            remaining = phase_deadline - time.monotonic()
+            if remaining <= 0:
+                raise LLMTimeoutError("已达到用例图生成等待上限，请稍后重试")
+            can_retry = attempt < len(modes)
+            request_timeout = min(timeout, remaining / 2 if can_retry else remaining)
+            try:
+                last_reply = request_model(request_messages, prompt, request_timeout, stream=stream)
+            except (LLMConnectionClosedError, LLMTimeoutError, LLMUpstreamUnavailableError) as error:
+                if isinstance(error, LLMStreamInterruptedError) and error.partial:
+                    # A complete JSON with a workflow error needs semantic repair, not character continuation.
+                    try:
+                        extract_json(error.partial)
+                    except SpecError:
+                        recovered = _resume_usecase(error.partial, request_model, request_messages, prompt, phase_deadline)
+                        if recovered is not None:
+                            return recovered
+                    else:
+                        last_reply = error.partial
+                        return _parse_generated_usecase(last_reply)
+                if not can_retry or phase_deadline - time.monotonic() <= 1:
+                    raise
+                next_stream = modes[attempt]
+                response_mode = "流式" if next_stream else "一次返回"
+                print(f"用例规格请求未完成（{error}），正在同一入口改用{response_mode}响应重试……", flush=True)
+                continue
+            return _parse_generated_usecase(last_reply)
+
+    # Transport recovery must not consume the time reserved for fixing a completed, invalid spec.
+    repair_budget = min(30, total_timeout / 4)
+    try:
+        return request_spec(messages, deadline - repair_budget)
+    except SpecError as error:
+        validation_error = str(error)
+        if deadline - time.monotonic() <= 1:
+            raise
+        print(f"用例规格未通过校验（{validation_error}），正在结合原需求修正……", flush=True)
+        correction = json.dumps({"error": validation_error, "previousOutput": last_reply[:24_000]}, ensure_ascii=False)
+        repair_messages = [request, {"role": "user", "content":
+            "上一次规格未通过校验。根据原需求修正以下数据，输出完整 JSON。"
+            "逐一核对每个参与者的实际职责及其 links，特别是被调用的外部系统。"
+            "保留原文明确要求的参与者和已正确的关系，不得仅删除孤立参与者以通过校验，"
+            "不得编造职责或把参与者写进 dependencies。"
+            "原文无法确定的职责在 reviewNotes 中说明，重新检查引用与循环。\n" + correction}]
         try:
-            return _parse_generated_usecase(reply)
-        except SpecError as error:
-            if not can_retry or deadline - time.monotonic() <= 1:
-                raise
-            correction = json.dumps({"error": str(error)[:600], "previousOutput": reply[:12_000]}, ensure_ascii=False)
-            messages = [request, {"role": "user", "content": "上一次规格未通过校验。根据原需求修正以下数据，保留已正确的业务关系并输出完整 JSON。\n" + correction}]
+            previous = extract_json(last_reply)
+        except SpecError:
+            previous = {}
+        original_actors = previous.get("actors") if isinstance(previous, dict) else None
+        required_actors = set()
+        if isinstance(original_actors, list):
+            for actor in original_actors:
+                name = _text(actor.get("name") if isinstance(actor, dict) else actor)
+                if name and name in text:
+                    required_actors.add(name)
+        try:
+            repaired_model, repaired_spec = request_spec(repair_messages, deadline)
+            missing = required_actors - {actor["name"] for actor in repaired_model["actors"]}
+            if missing:
+                raise SpecError("修正时遗漏了原文中的参与者：" + "、".join(sorted(missing)))
+            return repaired_model, repaired_spec
+        except SpecError as repair_error:
+            raise SpecError(f"修正规格仍未通过校验：{repair_error}（首次校验：{validation_error}）") from repair_error
+        except (LLMConnectionClosedError, LLMTimeoutError, LLMUpstreamUnavailableError) as repair_error:
+            raise SpecError(f"模型规格未通过校验：{validation_error}。修正请求未完成：{repair_error}") from repair_error
 
 
 def _actor_size(name):

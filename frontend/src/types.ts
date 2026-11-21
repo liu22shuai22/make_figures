@@ -103,6 +103,14 @@ export interface SpecDraft {
 }
 
 export type ImageFormat = 'png' | 'svg'
+
+export interface RenderStyle {
+  font: 'simsun' | 'simhei' | 'msyh' | 'simkai' | 'simfang'
+  fontSize: number
+  lineWidth: number
+}
+
+export const DEFAULT_RENDER_STYLE: RenderStyle = { font: 'simsun', fontSize: 10.5, lineWidth: 0.5 }
 export const CANVAS_RATIOS = ['auto', '16:9', '4:3', '1:1', '9:16'] as const
 export type CanvasRatio = (typeof CANVAS_RATIOS)[number]
 
@@ -175,6 +183,7 @@ export interface WorkbenchCommand {
 }
 
 export interface RenderResult {
+  style?: RenderStyle
   format: ImageFormat
   ratio: CanvasRatio
   /** 生成这张图时使用的规格指纹，用来判断「有修改，待重新排版」 */

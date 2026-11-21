@@ -3598,11 +3598,13 @@ select.input {
 
 .welcome-brand-sub {
   display: block;
-  font-size: 12.5px;
-  color: var(--ink-muted);
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: 0.01em;
+  color: color-mix(in srgb, var(--ink-muted) 88%, var(--paper));
 }
 
-/* 顶栏的次级入口：墨色而非品牌蓝，全页实心蓝只留给「开始绘图」 */
+/* 顶栏不做实心主按钮：全页实心蓝只留给「开始绘图」 */
 .btn-ghost {
   border-color: transparent;
   background: transparent;
@@ -3616,7 +3618,7 @@ select.input {
   color: var(--ink);
 }
 
-/* 右侧三档：图标最轻，用户名与品牌同重，最右是这条栏唯一的实心按钮 */
+/* 右侧：工具最轻，会话次之；「进入工作台」与登录同级，不抢首屏主按钮 */
 .top-actions {
   display: flex;
   align-items: center;
@@ -3686,8 +3688,10 @@ select.input {
 .top-session {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin-left: 18px;
+  gap: 4px;
+  margin-left: 12px;
+  padding-left: 12px;
+  border-left: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
 }
 
 .welcome-top .icon-ghost {
@@ -3716,20 +3720,20 @@ select.input {
 }
 
 .welcome-top .top-go {
-  height: 34px;
-  padding: 0 14px;
-  border: 0;
-  border-radius: 9px;
-  background: var(--ink);
-  color: var(--paper);
+  height: 32px;
+  padding: 0 10px;
+  border-color: transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink-soft);
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .welcome-top .top-go:hover:not(:disabled) {
-  border: 0;
-  background: color-mix(in srgb, var(--ink) 86%, var(--paper));
-  color: var(--paper);
+  border-color: transparent;
+  background: var(--chip-bg);
+  color: var(--ink);
 }
 
 .welcome-top .user-chip {
@@ -6241,6 +6245,15 @@ select.input {
 
   .welcome-top .btn-ghost {
     padding: 0 8px;
+  }
+
+  .welcome-brand-sub {
+    display: none;
+  }
+
+  .top-session {
+    margin-left: 8px;
+    padding-left: 8px;
   }
 
   .hero-sub {
