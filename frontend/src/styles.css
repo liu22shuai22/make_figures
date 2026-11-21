@@ -6487,8 +6487,8 @@ select.input {
   display: flex;
   flex-direction: column;
   justify-content: center;
-  width: min(400px, 100%);
-  padding: 22px 28px 18px;
+  width: min(420px, 100%);
+  padding: 28px 30px 22px;
   border: 1px solid var(--paper-line);
   border-radius: 20px;
   background: var(--paper-surface);
@@ -6499,8 +6499,8 @@ select.input {
 }
 
 .auth-sheet.is-login {
-  width: min(440px, 100%);
-  padding: 36px 36px 28px;
+  width: min(420px, 100%);
+  padding: 34px 34px 26px;
 }
 
 .auth-sheet.is-login .auth-form h2 {
@@ -6601,10 +6601,28 @@ select.input {
   padding-left: 14px;
 }
 
-.auth-code-send {
+.auth-code-line .auth-code-send.btn {
   flex: 0 0 auto;
   height: 40px;
+  min-width: 108px;
   padding: 0 12px;
+  border: 1.5px solid var(--paper-line);
+  border-radius: 11px;
+  background: var(--paper-surface);
+  color: var(--ink-soft);
+  font-size: 13px;
+  font-weight: 600;
+  box-shadow: none;
+}
+
+.auth-code-line .auth-code-send.btn:hover:not(:disabled) {
+  border-color: var(--paper-line-strong);
+  background: var(--paper-sunk);
+  color: var(--ink);
+}
+
+.auth-code-line .auth-code-send.btn:disabled {
+  opacity: 0.55;
 }
 
 .auth-input {
@@ -6664,6 +6682,15 @@ select.input {
 
 .auth-input.is-ok input {
   border-color: color-mix(in srgb, var(--ok) 55%, var(--paper-line));
+}
+
+.auth-input.is-bad input {
+  border-color: color-mix(in srgb, var(--danger) 55%, var(--paper-line));
+  background: color-mix(in srgb, var(--danger) 6%, var(--paper-sunk));
+}
+
+.auth-input.is-bad:focus-within input {
+  box-shadow: 0 0 0 3.5px color-mix(in srgb, var(--danger) 14%, transparent);
 }
 
 .auth-input-ok {
@@ -6733,13 +6760,14 @@ select.input {
   height: 18px;
 }
 
-/* 密码强度 */
+/* 密码强度：紧跟密码框，不挤在确认密码下面 */
 .auth-strength {
   display: inline-flex;
   align-items: center;
   gap: 10px;
-  margin-top: 10px;
-  padding: 4px 0;
+  margin-top: 8px;
+  margin-bottom: 2px;
+  padding: 0;
 }
 
 .auth-strength-bars {
@@ -6884,20 +6912,25 @@ select.input {
 
 /* 表单卡片底部 */
 .auth-sheet-foot {
-  margin-top: 14px;
-  padding-top: 12px;
-  border-top: 1px dashed var(--paper-line);
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--paper-line);
 }
 
 .auth-switch {
   margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 2px 4px;
   color: var(--ink-muted);
   font-size: 13px;
   text-align: center;
 }
 
 .auth-switch-btn {
-  margin-left: 6px;
+  margin-left: 2px;
   padding: 2px 4px;
   border: none;
   background: none;

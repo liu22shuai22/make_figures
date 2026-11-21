@@ -156,6 +156,7 @@ export default function AuthPage({ mode, onModeChange, onSuccess, onBack }: Auth
   const codeOk = /^\d{6}$/.test(code.trim())
   const pwOk = password.length >= 6 && password.length <= 64
   const confirmOk = mode === 'register' && confirm.length > 0 && confirm === password
+  const confirmBad = mode === 'register' && confirm.length > 0 && confirm !== password
   const strength = judgePassword(password)
 
   const submit = async (event: React.FormEvent) => {
@@ -248,7 +249,7 @@ export default function AuthPage({ mode, onModeChange, onSuccess, onBack }: Auth
                     value={username}
                     onChange={(event) => setUsername(event.target.value)}
                     autoComplete="username"
-                    placeholder={a.username}
+                    placeholder={a.usernamePh}
                     data-testid="auth-username"
                     maxLength={24}
                     autoFocus
@@ -269,7 +270,7 @@ export default function AuthPage({ mode, onModeChange, onSuccess, onBack }: Auth
                       value={email}
                       onChange={(event) => setEmail(event.target.value)}
                       autoComplete="email"
-                      placeholder="name@example.com"
+                      placeholder={a.emailPh}
                       data-testid="auth-email"
                       maxLength={254}
                     />
@@ -291,7 +292,7 @@ export default function AuthPage({ mode, onModeChange, onSuccess, onBack }: Auth
                         value={code}
                         onChange={(event) => setCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
                         autoComplete="one-time-code"
-                        placeholder={a.code}
+                        placeholder={a.codePh}
                         data-testid="auth-code"
                         maxLength={6}
                       />
@@ -322,7 +323,7 @@ export default function AuthPage({ mode, onModeChange, onSuccess, onBack }: Auth
                     value={password}
                     onChange={(event) => setPassword(event.target.value)}
                     autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
-                    placeholder={a.password}
+                    placeholder={a.passwordPh}
                     data-testid="auth-password"
                     maxLength={64}
                   />
@@ -339,44 +340,43 @@ export default function AuthPage({ mode, onModeChange, onSuccess, onBack }: Auth
                 </span>
               </label>
 
-              {/* 注册确认密码 */}
               {mode === 'register' && (
-                <>
-                  <label className="auth-field">
-                    <span className="auth-label-row">
-                      <span className="auth-label">{a.confirm}</span>
-                      <span className="auth-label-hint">{a.confirm}</span>
-                    </span>
-                    <span className={'auth-input' + (confirmOk ? ' is-ok' : '')}>
-                      <span className="auth-input-icon"><ShieldCheckIcon /></span>
-                      <input
-                        type={showPassword ? 'text' : 'password'}
-                        value={confirm}
-                        onChange={(event) => setConfirm(event.target.value)}
-                        autoComplete="new-password"
-                        placeholder={a.confirm}
-                        data-testid="auth-confirm"
-                        maxLength={64}
-                      />
-                      <button
-                        type="button"
-                        className="auth-eye"
-                        onClick={() => setShowPassword((value) => !value)}
-                        aria-label={showPassword ? a.hidePw : a.showPw}
-                      >
-                        <EyeIcon off={showPassword} />
-                      </button>
-                      {confirmOk && <span className="auth-input-ok"><CheckIcon /></span>}
-                    </span>
-                  </label>
+                <div className="auth-strength" data-level={strength.level} aria-live="polite">
+                  <span className="auth-strength-bars" aria-hidden="true"><i /><i /><i /></span>
+                  <span className="auth-strength-text">
+                    {strength.level === 0 ? a.strengthHint : a.strengthLabel(strength.label)}
+                  </span>
+                </div>
+              )}
 
-                  <div className="auth-strength" data-level={strength.level} aria-live="polite">
-                    <span className="auth-strength-bars" aria-hidden="true"><i /><i /><i /></span>
-                    <span className="auth-strength-text">
-                      {strength.level === 0 ? a.strengthHint : a.strengthLabel(strength.label)}
-                    </span>
-                  </div>
-                </>
+              {mode === 'register' && (
+                <label className="auth-field">
+                  <span className="auth-label-row">
+                    <span className="auth-label">{a.confirm}</span>
+                    <span className="auth-label-hint">{a.confirmHint}</span>
+                  </span>
+                  <span className={'auth-input' + (confirmOk ? ' is-ok' : confirmBad ? ' is-bad' : '')}>
+                    <span className="auth-input-icon"><ShieldCheckIcon /></span>
+                    <input
+                      type={showPassword ? 'text' : 'password'}
+                      value={confirm}
+                      onChange={(event) => setConfirm(event.target.value)}
+                      autoComplete="new-password"
+                      placeholder={a.confirmPh}
+                      data-testid="auth-confirm"
+                      maxLength={64}
+                    />
+                    <button
+                      type="button"
+                      className="auth-eye"
+                      onClick={() => setShowPassword((value) => !value)}
+                      aria-label={showPassword ? a.hidePw : a.showPw}
+                    >
+                      <EyeIcon off={showPassword} />
+                    </button>
+                    {confirmOk && <span className="auth-input-ok"><CheckIcon /></span>}
+                  </span>
+                </label>
               )}
 
               {/* 错误提示 */}
@@ -408,14 +408,14 @@ export default function AuthPage({ mode, onModeChange, onSuccess, onBack }: Auth
               <p className="auth-switch">
                 {mode === 'login' ? (
                   <>
-                    还没有账号？
+                    <span>{a.switchAskRegister}</span>
                     <button type="button" className="auth-switch-btn" disabled={busy} onClick={() => switchMode('register')} data-testid="auth-to-register">
                       {a.switchRegister}
                     </button>
                   </>
                 ) : (
                   <>
-                    已经有账号了？
+                    <span>{a.switchAskLogin}</span>
                     <button type="button" className="auth-switch-btn" disabled={busy} onClick={() => switchMode('login')} data-testid="auth-to-login">
                       {a.switchLogin}
                     </button>
